@@ -26,6 +26,29 @@ const STORAGE_KEYS = {
   theme: "b1Trainer.theme",
 };
 
+const TEST_METHODS = {
+  choice: {
+    label: "Trắc nghiệm",
+    prompt: "Nghĩa tiếng Việt",
+    resultLabel: "Bạn chọn",
+  },
+  truefalse: {
+    label: "Đúng / sai",
+    prompt: "Cặp từ",
+    resultLabel: "Bạn chọn",
+  },
+  flashcard: {
+    label: "Flashcard",
+    prompt: "Nghĩa tiếng Việt",
+    resultLabel: "Bạn tự đánh giá",
+  },
+  typing: {
+    label: "Nhập đáp án",
+    prompt: "Nghĩa tiếng Việt",
+    resultLabel: "Bạn nhập",
+  },
+};
+
 const state = {
   unitId: localStorage.getItem(STORAGE_KEYS.selectedUnit) || "unit-01",
   testWords: [],
@@ -33,6 +56,8 @@ const state = {
   score: 0,
   results: [],
   answered: false,
+  testMethod: "choice",
+  currentQuestion: null,
   pdfUrl: "",
   pdfDoc: null,
   pdfPage: 1,
@@ -101,13 +126,17 @@ const els = {
   questionCard: document.querySelector("#questionCard"),
   questionIndex: document.querySelector("#questionIndex"),
   questionScore: document.querySelector("#questionScore"),
+  questionPrompt: document.querySelector("#questionPrompt"),
   questionMeaning: document.querySelector("#questionMeaning"),
   questionMeta: document.querySelector("#questionMeta"),
+  choiceGrid: document.querySelector("#choiceGrid"),
+  flashcardAnswer: document.querySelector("#flashcardAnswer"),
   answerForm: document.querySelector("#answerForm"),
   answerInput: document.querySelector("#answerInput"),
   feedback: document.querySelector("#feedback"),
   skipButton: document.querySelector("#skipButton"),
   nextButton: document.querySelector("#nextButton"),
+  testMethodInputs: document.querySelectorAll('input[name="testMethod"]'),
   resultPanel: document.querySelector("#resultPanel"),
   resultSummary: document.querySelector("#resultSummary"),
   resultList: document.querySelector("#resultList"),
@@ -284,6 +313,7 @@ function setUnit(unitId) {
   state.unitId = unitId;
   state.testWords = [];
   state.results = [];
+  state.currentQuestion = null;
   localStorage.setItem(STORAGE_KEYS.selectedUnit, unitId);
   initUnitControls();
   renderAll();
@@ -448,7 +478,31 @@ function getTestWords() {
   return els.shuffleInput.checked ? shuffle(words) : [...words];
 }
 
-function startTest(words = getTestWords()) {
+function getSelectedTestMethod() {
+  const selected = Array.from(els.testMethodInputs).find((input) => input.checked);
+  return TEST_METHODS[selected?.value] ? selected.value : "choice";
+}
+
+function syncTestMethodControls(method = state.testMethod) {
+  const safeMethod = TEST_METHODS[method] ? method : "choice";
+  state.testMethod = safeMethod;
+  els.testMethodInputs.forEach((input) => {
+    input.checked = input.value === safeMethod;
+  });
+}
+
+function changeTestMethod(method) {
+  syncTestMethodControls(method);
+  if (state.testWords.length && !state.answered && !els.questionCard.classList.contains("hidden")) {
+    renderQuestion();
+  }
+}
+
+function getActiveTestMethod() {
+  return TEST_METHODS[state.testMethod] ? state.testMethod : "choice";
+}
+
+function startTest(words = getTestWords(), method = getSelectedTestMethod()) {
   if (!words.length) {
     switchPanel("learn");
     els.wordTable.innerHTML =
@@ -456,11 +510,13 @@ function startTest(words = getTestWords()) {
     return;
   }
 
+  syncTestMethodControls(method);
   state.testWords = words;
   state.currentIndex = 0;
   state.score = 0;
   state.results = [];
   state.answered = false;
+  state.currentQuestion = null;
 
   els.resultPanel.classList.add("hidden");
   els.questionCard.classList.remove("hidden");
@@ -477,6 +533,139 @@ function shuffle(words) {
   return copy;
 }
 
+function getCorrectAnswers(word) {
+  return [word.english, ...(word.alternatives || [])].filter(Boolean).map(normalize);
+}
+
+function getDistractorWords(word) {
+  const correctAnswers = getCorrectAnswers(word);
+  return getCurrentUnit().words.filter(
+    (candidate) => !correctAnswers.includes(normalize(candidate.english)),
+  );
+}
+
+function getChoiceOptions(word) {
+  const options = [word.english];
+
+  shuffle(getDistractorWords(word)).forEach((candidate) => {
+    if (options.length >= 4) {
+      return;
+    }
+    if (!options.map(normalize).includes(normalize(candidate.english))) {
+      options.push(candidate.english);
+    }
+  });
+
+  return shuffle(options);
+}
+
+function buildQuestion(word, method) {
+  if (method === "choice") {
+    return {
+      method,
+      word,
+      promptText: word.vietnamese,
+      options: getChoiceOptions(word),
+      correctAnswers: getCorrectAnswers(word),
+    };
+  }
+
+  if (method === "truefalse") {
+    const distractors = getDistractorWords(word);
+    const shouldUseCorrectWord = !distractors.length || Math.random() >= 0.5;
+    const displayWord = shouldUseCorrectWord ? word : shuffle(distractors)[0];
+
+    return {
+      method,
+      word,
+      promptText: `${displayWord.english} = ${word.vietnamese}`,
+      isStatementCorrect: shouldUseCorrectWord,
+    };
+  }
+
+  return {
+    method,
+    word,
+    promptText: word.vietnamese,
+    correctAnswers: getCorrectAnswers(word),
+  };
+}
+
+function renderChoiceButtons(question) {
+  els.choiceGrid.innerHTML = "";
+
+  question.options.forEach((option) => {
+    const button = document.createElement("button");
+    button.className = "choice-button";
+    button.type = "button";
+    button.dataset.testAnswer = option;
+    button.dataset.correct = String(question.correctAnswers.includes(normalize(option)));
+    button.textContent = option;
+    els.choiceGrid.append(button);
+  });
+}
+
+function renderTrueFalseButtons(question) {
+  els.choiceGrid.innerHTML = "";
+
+  [
+    ["Đúng", true],
+    ["Sai", false],
+  ].forEach(([label, value]) => {
+    const button = document.createElement("button");
+    button.className = "choice-button compact";
+    button.type = "button";
+    button.dataset.testAnswer = label;
+    button.dataset.correct = String(value === question.isStatementCorrect);
+    button.textContent = label;
+    els.choiceGrid.append(button);
+  });
+}
+
+function renderFlashcardControls(word) {
+  els.flashcardAnswer.innerHTML = "";
+
+  const revealButton = document.createElement("button");
+  revealButton.className = "ghost-button flashcard-reveal";
+  revealButton.type = "button";
+  revealButton.dataset.flashcardAction = "reveal";
+  revealButton.textContent = "Hiện đáp án";
+
+  const answerBox = document.createElement("div");
+  answerBox.className = "flashcard-word hidden";
+  answerBox.innerHTML = `
+    <span>Đáp án</span>
+    <strong>${escapeHtml(word.english)}</strong>
+  `;
+
+  const actions = document.createElement("div");
+  actions.className = "flashcard-actions hidden";
+
+  const missedButton = document.createElement("button");
+  missedButton.className = "ghost-button";
+  missedButton.type = "button";
+  missedButton.dataset.flashcardAction = "missed";
+  missedButton.dataset.correct = "false";
+  missedButton.textContent = "Chưa nhớ";
+
+  const rememberedButton = document.createElement("button");
+  rememberedButton.className = "primary-button";
+  rememberedButton.type = "button";
+  rememberedButton.dataset.flashcardAction = "remembered";
+  rememberedButton.dataset.correct = "true";
+  rememberedButton.textContent = "Đã nhớ";
+
+  actions.append(missedButton, rememberedButton);
+  els.flashcardAnswer.append(revealButton, answerBox, actions);
+}
+
+function setQuestionModeVisibility(method) {
+  els.answerForm.classList.toggle("hidden", method !== "typing");
+  els.choiceGrid.classList.toggle("hidden", method !== "choice" && method !== "truefalse");
+  els.flashcardAnswer.classList.toggle("hidden", method !== "flashcard");
+  els.answerInput.required = method === "typing";
+}
+
 function renderQuestion() {
   const word = state.testWords[state.currentIndex];
   const total = state.testWords.length;
@@ -486,49 +675,145 @@ function renderQuestion() {
     return;
   }
 
+  const method = getActiveTestMethod();
+  const question = buildQuestion(word, method);
+  state.currentQuestion = question;
   els.questionIndex.textContent = `Câu ${state.currentIndex + 1}/${total}`;
   els.questionScore.textContent = `${state.score} đúng`;
-  els.questionMeaning.textContent = word.vietnamese;
+  els.questionPrompt.textContent = TEST_METHODS[method].prompt;
+  els.questionMeaning.textContent = question.promptText;
   els.questionMeta.textContent = `${word.type || "word"} - ${word.example || "Không có ví dụ"}`;
   els.answerInput.value = "";
-  els.answerInput.disabled = false;
+  els.answerInput.disabled = method !== "typing";
   els.skipButton.disabled = false;
   els.nextButton.classList.add("hidden");
   els.feedback.textContent = "";
   els.feedback.className = "feedback";
   state.answered = false;
-  els.answerInput.focus();
+  setQuestionModeVisibility(method);
+
+  if (method === "choice") {
+    renderChoiceButtons(question);
+  } else if (method === "truefalse") {
+    renderTrueFalseButtons(question);
+  } else {
+    els.choiceGrid.innerHTML = "";
+  }
+
+  if (method === "flashcard") {
+    renderFlashcardControls(word);
+  } else {
+    els.flashcardAnswer.innerHTML = "";
+  }
+
+  if (method === "typing") {
+    els.answerInput.focus();
+  }
 }
 
 function submitAnswer(event) {
   event.preventDefault();
-  if (state.answered) {
+  if (state.answered || getActiveTestMethod() !== "typing") {
     return;
   }
 
   const word = state.testWords[state.currentIndex];
   const userAnswer = normalize(els.answerInput.value);
-  const answers = [word.english, ...(word.alternatives || [])].map(normalize);
+  const answers = getCorrectAnswers(word);
   const isCorrect = answers.includes(userAnswer);
 
-  state.answered = true;
+  completeQuestion({
+    userAnswer: els.answerInput.value.trim() || "(bỏ trống)",
+    isCorrect,
+  });
+}
+
+function handleChoiceAnswer(event) {
+  if (!(event.target instanceof Element)) {
+    return;
+  }
+
+  const button = event.target.closest("[data-test-answer]");
+  if (!button || state.answered) {
+    return;
+  }
+
+  completeQuestion({
+    userAnswer: button.dataset.testAnswer,
+    isCorrect: button.dataset.correct === "true",
+    selectedButton: button,
+  });
+}
+
+function handleFlashcardAnswer(event) {
+  if (!(event.target instanceof Element)) {
+    return;
+  }
+
+  const button = event.target.closest("[data-flashcard-action]");
+  if (!button || state.answered) {
+    return;
+  }
+
+  if (button.dataset.flashcardAction === "reveal") {
+    els.flashcardAnswer.querySelector(".flashcard-word")?.classList.remove("hidden");
+    els.flashcardAnswer.querySelector(".flashcard-actions")?.classList.remove("hidden");
+    button.classList.add("hidden");
+    return;
+  }
+
+  const isCorrect = button.dataset.flashcardAction === "remembered";
+  completeQuestion({
+    userAnswer: isCorrect ? "Đã nhớ" : "Chưa nhớ",
+    isCorrect,
+    selectedButton: button,
+  });
+}
+
+function disableQuestionControls(selectedButton) {
   els.answerInput.disabled = true;
   els.skipButton.disabled = true;
   els.nextButton.classList.remove("hidden");
 
+  [...els.choiceGrid.querySelectorAll("button"), ...els.flashcardAnswer.querySelectorAll("button")].forEach(
+    (button) => {
+      button.disabled = true;
+      if (button.dataset.correct === "true") {
+        button.classList.add("correct");
+      }
+      if (button === selectedButton && button.dataset.correct !== "true") {
+        button.classList.add("wrong");
+      }
+    },
+  );
+}
+
+function completeQuestion({ userAnswer, isCorrect, selectedButton = null, skipped = false }) {
+  if (state.answered) {
+    return;
+  }
+
+  const word = state.testWords[state.currentIndex];
+  state.answered = true;
+  disableQuestionControls(selectedButton);
+
   if (isCorrect) {
     state.score += 1;
-    els.feedback.textContent = `Đúng: ${word.english}`;
+    els.feedback.textContent =
+      getActiveTestMethod() === "flashcard" ? `Đã ghi nhận: ${word.english}` : `Đúng: ${word.english}`;
     els.feedback.classList.add("correct");
   } else {
-    els.feedback.textContent = `Sai. Đáp án đúng là: ${word.english}`;
+    els.feedback.textContent = skipped
+      ? `Đáp án đúng là: ${word.english}`
+      : `Sai. Đáp án đúng là: ${word.english}`;
     els.feedback.classList.add("wrong");
   }
 
   state.results.push({
     word,
-    userAnswer: els.answerInput.value.trim() || "(bỏ trống)",
+    userAnswer,
     isCorrect,
+    method: getActiveTestMethod(),
   });
   els.questionScore.textContent = `${state.score} đúng`;
 }
@@ -538,14 +823,7 @@ function skipQuestion() {
     return;
   }
 
-  const word = state.testWords[state.currentIndex];
-  state.answered = true;
-  state.results.push({ word, userAnswer: "(bỏ qua)", isCorrect: false });
-  els.answerInput.disabled = true;
-  els.skipButton.disabled = true;
-  els.feedback.textContent = `Đáp án đúng là: ${word.english}`;
-  els.feedback.className = "feedback wrong";
-  els.nextButton.classList.remove("hidden");
+  completeQuestion({ userAnswer: "(bỏ qua)", isCorrect: false, skipped: true });
 }
 
 function nextQuestion() {
@@ -576,12 +854,13 @@ function finishTest() {
   els.resultList.innerHTML = "";
 
   state.results.forEach((result) => {
+    const method = TEST_METHODS[result.method] || TEST_METHODS.typing;
     const item = document.createElement("div");
     item.className = `result-item ${result.isCorrect ? "correct" : "wrong"}`;
     item.innerHTML = `
       <strong>${result.isCorrect ? "Đúng" : "Sai"}</strong>
       <span>${escapeHtml(result.word.vietnamese)} -> ${escapeHtml(result.word.english)}
-      <br />Bạn nhập: ${escapeHtml(result.userAnswer)}</span>
+      <br />${method.resultLabel}: ${escapeHtml(result.userAnswer)}</span>
     `;
     els.resultList.append(item);
   });
@@ -1331,13 +1610,18 @@ function bindEvents() {
   els.startTestSideButton.addEventListener("click", () => startTest());
   els.resetTestButton.addEventListener("click", () => startTest());
   els.answerForm.addEventListener("submit", submitAnswer);
+  els.choiceGrid.addEventListener("click", handleChoiceAnswer);
+  els.flashcardAnswer.addEventListener("click", handleFlashcardAnswer);
+  els.testMethodInputs.forEach((input) => {
+    input.addEventListener("change", () => changeTestMethod(getSelectedTestMethod()));
+  });
   els.skipButton.addEventListener("click", skipQuestion);
   els.nextButton.addEventListener("click", nextQuestion);
   els.retryWrongButton.addEventListener("click", () => {
     const wrongWords = state.results
       .filter((result) => !result.isCorrect)
       .map((result) => result.word);
-    startTest(wrongWords);
+    startTest(wrongWords, state.testMethod);
   });
   els.searchInput.addEventListener("input", renderWordTable);
   els.wordTable.addEventListener("change", (event) => {

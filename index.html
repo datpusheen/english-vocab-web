@@ -24,7 +24,7 @@
       };
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="styles.css?v=10" />
+    <link rel="stylesheet" href="styles.css?v=11" />
   </head>
   <body class="min-h-screen antialiased">
     <div class="app min-h-screen">
@@ -273,8 +273,8 @@
         <section class="panel" id="testPanel" aria-label="Bài kiểm tra từ vựng">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">Writing test</p>
-              <h2>Nhìn nghĩa tiếng Việt, viết từ tiếng Anh</h2>
+              <p class="eyebrow">Practice test</p>
+              <h2>Chọn cách kiểm tra phù hợp với unit này</h2>
             </div>
             <button class="ghost-button" id="resetTestButton" type="button">Làm lại</button>
           </div>
@@ -285,9 +285,11 @@
                 <span id="questionIndex">Câu 1/1</span>
                 <span id="questionScore">0 đúng</span>
               </div>
-              <span class="meaning-label">Nghĩa tiếng Việt</span>
+              <span class="meaning-label" id="questionPrompt">Nghĩa tiếng Việt</span>
               <h3 id="questionMeaning">Bấm làm bài test để bắt đầu.</h3>
               <p id="questionMeta" class="question-meta"></p>
+              <div class="choice-grid hidden" id="choiceGrid"></div>
+              <div class="flashcard-answer hidden" id="flashcardAnswer"></div>
               <form class="answer-form" id="answerForm">
                 <input
                   id="answerInput"
@@ -309,6 +311,25 @@
 
             <aside class="test-summary">
               <h3>Thiết lập bài test</h3>
+              <fieldset class="test-methods" id="testMethodGroup">
+                <legend>Kiểu kiểm tra</legend>
+                <label class="test-method-option">
+                  <input type="radio" name="testMethod" value="choice" checked />
+                  <span>Trắc nghiệm</span>
+                </label>
+                <label class="test-method-option">
+                  <input type="radio" name="testMethod" value="truefalse" />
+                  <span>Đúng / sai</span>
+                </label>
+                <label class="test-method-option">
+                  <input type="radio" name="testMethod" value="flashcard" />
+                  <span>Flashcard</span>
+                </label>
+                <label class="test-method-option">
+                  <input type="radio" name="testMethod" value="typing" />
+                  <span>Nhập đáp án</span>
+                </label>
+              </fieldset>
               <label class="check-row">
                 <input id="onlyUnmasteredInput" type="checkbox" />
                 Chỉ kiểm tra từ chưa thuộc
@@ -425,6 +446,6 @@
     <script src="assets/vendor/jquery.js"></script>
     <script src="assets/vendor/turn.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script src="app.js?v=10"></script>
+    <script src="app.js?v=11"></script>
   </body>
 </html>

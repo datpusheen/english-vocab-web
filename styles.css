@@ -1237,6 +1237,58 @@ html[data-theme="dark"] .type-tag {
   min-height: 18px;
 }
 
+.test-methods {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.test-methods legend {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.test-method-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  color: var(--muted);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 900;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.test-method-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.test-method-option:hover,
+.test-method-option:focus-within {
+  color: var(--ink);
+  border-color: var(--teal);
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.1);
+}
+
+.test-method-option:has(input:checked) {
+  color: #fff;
+  background: var(--teal);
+  border-color: var(--teal);
+  box-shadow: var(--button-shadow);
+}
+
 .test-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;
@@ -1290,6 +1342,92 @@ html[data-theme="dark"] .type-tag {
 .answer-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.choice-button {
+  min-height: 54px;
+  padding: 12px 14px;
+  color: var(--ink);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-align: left;
+  white-space: normal;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease,
+    transform 180ms ease, box-shadow 180ms ease;
+}
+
+.choice-button.compact {
+  text-align: center;
+}
+
+.choice-button:hover:not(:disabled) {
+  border-color: var(--teal);
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.12);
+}
+
+.choice-button.correct,
+.flashcard-answer button.correct {
+  color: var(--teal-dark);
+  background: var(--green-soft);
+  border-color: var(--teal);
+}
+
+.choice-button.wrong,
+.flashcard-answer button.wrong {
+  color: var(--coral);
+  background: var(--red-soft);
+  border-color: var(--coral);
+}
+
+.choice-button:disabled,
+.flashcard-answer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.9;
+}
+
+.flashcard-answer {
+  display: grid;
+  gap: 12px;
+}
+
+.flashcard-reveal {
+  justify-self: start;
+}
+
+.flashcard-word {
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.flashcard-word span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.flashcard-word strong {
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.flashcard-actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -1624,6 +1762,14 @@ html[data-theme="dark"] .type-tag {
 
   .answer-form {
     grid-template-columns: 1fr;
+  }
+
+  .choice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .choice-button {
+    width: 100%;
   }
 
   .search-box {
