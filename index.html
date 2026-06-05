@@ -4,34 +4,116 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Destination B1 Vocabulary Trainer</title>
-    <link rel="stylesheet" href="styles.css?v=4" />
+    <script>
+      (() => {
+        try {
+          const savedTheme = localStorage.getItem("b1Trainer.theme");
+          const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          document.documentElement.dataset.theme = savedTheme || (prefersDark ? "dark" : "light");
+        } catch {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
+    <script>
+      window.tailwind = window.tailwind || {};
+      window.tailwind.config = {
+        corePlugins: {
+          preflight: false,
+        },
+      };
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css?v=10" />
   </head>
-  <body>
-    <div class="app">
-      <aside class="sidebar" aria-label="Danh sách unit">
-        <div class="brand">
-          <span class="brand-mark">B1</span>
-          <div>
-            <strong>Vocabulary Trainer</strong>
-            <span>PDF study companion</span>
+  <body class="min-h-screen antialiased">
+    <div class="app min-h-screen">
+      <header class="top-nav shadow-sm" aria-label="Điều hướng học tập">
+        <div class="top-nav-main">
+          <div class="brand">
+            <span class="brand-mark">B1</span>
+            <div>
+              <strong>Vocabulary Trainer</strong>
+              <span>PDF study companion</span>
+            </div>
+          </div>
+
+          <div class="nav-controls">
+            <div class="nav-menu-wrap">
+              <button
+                class="nav-menu-button"
+                id="modeMenuButton"
+                type="button"
+                aria-expanded="false"
+                aria-controls="modeMenuPanel"
+              >
+                <span id="currentModeLabel">PDF sách</span>
+                <span class="unit-menu-icon" aria-hidden="true"></span>
+              </button>
+              <nav class="mode-menu-panel" id="modeMenuPanel" aria-label="Chế độ học" hidden>
+                <button class="active" id="pdfTab" type="button">PDF sách</button>
+                <button id="learnTab" type="button">Học từ</button>
+                <button id="testTab" type="button">Kiểm tra</button>
+                <button id="addTab" type="button">Thêm từ</button>
+                <button id="importTab" type="button">Import</button>
+              </nav>
+            </div>
+            <button
+              class="theme-toggle"
+              id="themeToggle"
+              type="button"
+              aria-label="Đổi giao diện sáng tối"
+              aria-pressed="false"
+            >
+              <span class="theme-icon-wrap" aria-hidden="true">
+                <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" />
+                  <path
+                    d="M12 2v2.2M12 19.8V22M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2 12h2.2M19.8 12H22M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-width="2"
+                  />
+                </svg>
+                <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M20.4 14.4A7.8 7.8 0 0 1 9.6 3.6 8.8 8.8 0 1 0 20.4 14.4Z"
+                    stroke="currentColor"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                  />
+                </svg>
+              </span>
+            </button>
+            <button
+              class="unit-menu-button"
+              id="unitMenuButton"
+              type="button"
+              aria-expanded="false"
+              aria-controls="unitListPanel"
+            >
+              <span id="currentUnitLabel">Unit 1</span>
+              <span class="unit-menu-icon" aria-hidden="true"></span>
+            </button>
           </div>
         </div>
 
-        <label class="unit-picker">
-          Hôm nay học unit
-          <select id="unitSelect"></select>
-        </label>
+        <div class="unit-list-panel" id="unitListPanel" hidden>
+          <div class="unit-list-heading">
+            <strong>Danh sách unit</strong>
+            <span>Chọn nhanh unit muốn học</span>
+          </div>
+          <div class="unit-list" id="unitList"></div>
+        </div>
+      </header>
 
-        <div class="unit-list" id="unitList"></div>
-      </aside>
-
-      <main class="workspace">
+      <main class="workspace mx-auto w-full">
         <section class="hero">
           <div class="hero-copy">
             <p class="eyebrow">Chọn unit, học từ, rồi kiểm tra ngay</p>
             <h1 id="unitTitle">Unit 1</h1>
             <p id="unitDescription">
-              Chọn một unit ở bên trái để bắt đầu học từ vựng.
+              Chọn một unit ở thanh trên để bắt đầu học từ vựng.
             </p>
             <div class="hero-actions">
               <button class="primary-button" id="startTestButton" type="button">
@@ -68,14 +150,6 @@
           </article>
         </section>
 
-        <nav class="mode-tabs" aria-label="Chế độ học">
-          <button class="active" id="pdfTab" type="button">PDF sách</button>
-          <button id="learnTab" type="button">Học từ</button>
-          <button id="testTab" type="button">Kiểm tra</button>
-          <button id="addTab" type="button">Thêm từ</button>
-          <button id="importTab" type="button">Import</button>
-        </nav>
-
         <section class="panel active" id="pdfPanel" aria-label="Mở PDF gốc">
           <div class="panel-heading">
             <div>
@@ -91,11 +165,96 @@
             Chọn file `Destination-B1.pdf` một lần. App sẽ lưu file trong trình duyệt;
             khi muốn đổi sách thì chọn PDF khác.
           </p>
-          <iframe
-            class="pdf-frame"
-            id="pdfFrame"
-            title="Destination B1 PDF viewer"
-          ></iframe>
+          <div class="pdf-reader" id="pdfReader">
+            <div class="pdf-toolbar" aria-label="Điều khiển đọc PDF">
+              <div class="pdf-control-group">
+                <button
+                  class="reader-icon-button"
+                  id="pdfPrevButton"
+                  type="button"
+                  aria-label="Trang trước"
+                  title="Trang trước"
+                  disabled
+                >
+                  <span aria-hidden="true">‹</span>
+                </button>
+                <label class="pdf-page-control">
+                  <span>Trang</span>
+                  <input id="pdfPageInput" type="number" min="1" value="1" disabled />
+                </label>
+                <span class="pdf-page-total" id="pdfPageTotal">/ 0</span>
+                <button
+                  class="reader-icon-button"
+                  id="pdfNextButton"
+                  type="button"
+                  aria-label="Trang tiếp"
+                  title="Trang tiếp"
+                  disabled
+                >
+                  <span aria-hidden="true">›</span>
+                </button>
+              </div>
+              <div class="pdf-control-group pdf-zoom-controls">
+                <button
+                  class="reader-icon-button"
+                  id="pdfZoomOutButton"
+                  type="button"
+                  aria-label="Thu nhỏ"
+                  title="Thu nhỏ"
+                  disabled
+                >
+                  <span aria-hidden="true">−</span>
+                </button>
+                <span class="pdf-zoom-label" id="pdfZoomLabel">100%</span>
+                <button
+                  class="reader-icon-button"
+                  id="pdfZoomInButton"
+                  type="button"
+                  aria-label="Phóng to"
+                  title="Phóng to"
+                  disabled
+                >
+                  <span aria-hidden="true">+</span>
+                </button>
+                <button class="ghost-button pdf-fit-button" id="pdfFitButton" type="button" disabled>
+                  Vừa khung
+                </button>
+              </div>
+            </div>
+
+            <div class="pdf-book-shell">
+              <button
+                class="pdf-page-turn pdf-page-turn-left"
+                id="pdfTurnPrevButton"
+                type="button"
+                aria-label="Lật về trang trước"
+                title="Lật về trang trước"
+                disabled
+              >
+                <span aria-hidden="true">‹</span>
+              </button>
+              <div class="pdf-book" id="pdfBook" aria-live="polite">
+                <div class="pdf-empty-state" id="pdfEmptyState">
+                  Chọn PDF để đọc kiểu ebook trong app.
+                </div>
+                <div class="pdf-flipbook hidden" id="pdfFlipbook"></div>
+              </div>
+              <button
+                class="pdf-page-turn pdf-page-turn-right"
+                id="pdfTurnNextButton"
+                type="button"
+                aria-label="Lật sang trang tiếp"
+                title="Lật sang trang tiếp"
+                disabled
+              >
+                <span aria-hidden="true">›</span>
+              </button>
+            </div>
+
+            <div class="pdf-progress" aria-hidden="true">
+              <span id="pdfProgressBar"></span>
+            </div>
+          </div>
         </section>
 
         <section class="panel" id="learnPanel" aria-label="Từ vựng trong unit">
@@ -263,6 +422,9 @@
       </main>
     </div>
 
-    <script src="app.js?v=4"></script>
+    <script src="assets/vendor/jquery.js"></script>
+    <script src="assets/vendor/turn.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="app.js?v=10"></script>
   </body>
 </html>

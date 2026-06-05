@@ -3,6 +3,19 @@ const PDF_DB_NAME = "b1TrainerPdfDb";
 const PDF_DB_VERSION = 1;
 const PDF_STORE_NAME = "files";
 const PDF_RECORD_KEY = "book";
+const PDF_WORKER_SRC = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const PDF_MIN_ZOOM = 0.7;
+const PDF_MAX_ZOOM = 1.8;
+const PDF_ZOOM_STEP = 0.15;
+const PDF_SPREAD_QUERY = "(min-width: 820px)";
+
+const MODE_LABELS = {
+  pdf: "PDF sách",
+  learn: "Học từ",
+  test: "Kiểm tra",
+  add: "Thêm từ",
+  import: "Import",
+};
 
 const STORAGE_KEYS = {
   imported: "b1Trainer.importedUnits",
@@ -10,6 +23,7 @@ const STORAGE_KEYS = {
   mastered: "b1Trainer.masteredWords",
   progress: "b1Trainer.progress",
   selectedUnit: "b1Trainer.selectedUnit",
+  theme: "b1Trainer.theme",
 };
 
 const state = {
@@ -20,6 +34,15 @@ const state = {
   results: [],
   answered: false,
   pdfUrl: "",
+  pdfDoc: null,
+  pdfPage: 1,
+  pdfPageRatio: 0.707,
+  pdfZoom: 1,
+  pdfRenderId: 0,
+  pdfRenderTasks: [],
+  pdfRenderedPages: new Set(),
+  pdfResizeTimer: 0,
+  pdfTurning: false,
 };
 
 const els = {
@@ -34,10 +57,30 @@ const els = {
   addPanel: document.querySelector("#addPanel"),
   importPanel: document.querySelector("#importPanel"),
   pdfInput: document.querySelector("#pdfInput"),
-  pdfFrame: document.querySelector("#pdfFrame"),
   pdfFileName: document.querySelector("#pdfFileName"),
-  unitSelect: document.querySelector("#unitSelect"),
+  pdfReader: document.querySelector("#pdfReader"),
+  pdfBook: document.querySelector("#pdfBook"),
+  pdfEmptyState: document.querySelector("#pdfEmptyState"),
+  pdfFlipbook: document.querySelector("#pdfFlipbook"),
+  pdfPrevButton: document.querySelector("#pdfPrevButton"),
+  pdfNextButton: document.querySelector("#pdfNextButton"),
+  pdfTurnPrevButton: document.querySelector("#pdfTurnPrevButton"),
+  pdfTurnNextButton: document.querySelector("#pdfTurnNextButton"),
+  pdfPageInput: document.querySelector("#pdfPageInput"),
+  pdfPageTotal: document.querySelector("#pdfPageTotal"),
+  pdfZoomOutButton: document.querySelector("#pdfZoomOutButton"),
+  pdfZoomInButton: document.querySelector("#pdfZoomInButton"),
+  pdfFitButton: document.querySelector("#pdfFitButton"),
+  pdfZoomLabel: document.querySelector("#pdfZoomLabel"),
+  pdfProgressBar: document.querySelector("#pdfProgressBar"),
   unitList: document.querySelector("#unitList"),
+  unitMenuButton: document.querySelector("#unitMenuButton"),
+  unitListPanel: document.querySelector("#unitListPanel"),
+  currentUnitLabel: document.querySelector("#currentUnitLabel"),
+  modeMenuButton: document.querySelector("#modeMenuButton"),
+  modeMenuPanel: document.querySelector("#modeMenuPanel"),
+  currentModeLabel: document.querySelector("#currentModeLabel"),
+  themeToggle: document.querySelector("#themeToggle"),
   unitInput: document.querySelector("#unitInput"),
   importUnitInput: document.querySelector("#importUnitInput"),
   unitTitle: document.querySelector("#unitTitle"),
@@ -81,6 +124,8 @@ const els = {
   clearImportedButton: document.querySelector("#clearImportedButton"),
   importStatus: document.querySelector("#importStatus"),
 };
+
+const disclosureTimers = new WeakMap();
 
 function loadJson(key, fallback) {
   try {
@@ -200,15 +245,19 @@ function makeWordId(word) {
 
 function initUnitControls() {
   const units = getUnits();
-  els.unitSelect.innerHTML = "";
   els.unitInput.innerHTML = "";
   els.importUnitInput.innerHTML = "";
   els.unitList.innerHTML = "";
 
   units.forEach((unit) => {
     const label = `Unit ${unit.number}: ${unit.title}`;
+    const detail =
+      unit.title === `Unit ${unit.number}`
+        ? unit.words.length
+          ? `${unit.words.length} từ`
+          : "Chưa có từ"
+        : unit.title;
     const option = new Option(label, unit.id);
-    els.unitSelect.append(option);
     els.unitInput.append(option.cloneNode(true));
     els.importUnitInput.append(option.cloneNode(true));
 
@@ -218,7 +267,7 @@ function initUnitControls() {
     button.dataset.unitId = unit.id;
     button.innerHTML = `
       <strong>Unit ${unit.number}</strong>
-      <span>${escapeHtml(unit.title)}</span>
+      <span>${escapeHtml(detail)}</span>
     `;
     els.unitList.append(button);
   });
@@ -227,7 +276,6 @@ function initUnitControls() {
     state.unitId = units[0].id;
   }
 
-  els.unitSelect.value = state.unitId;
   els.unitInput.value = state.unitId;
   els.importUnitInput.value = state.unitId;
 }
@@ -239,6 +287,55 @@ function setUnit(unitId) {
   localStorage.setItem(STORAGE_KEYS.selectedUnit, unitId);
   initUnitControls();
   renderAll();
+  setUnitPanel(false);
+}
+
+function setDisclosure(panel, button, open) {
+  if (!panel || !button) {
+    return;
+  }
+
+  const timer = disclosureTimers.get(panel);
+  if (timer) {
+    window.clearTimeout(timer);
+  }
+
+  if (open) {
+    panel.hidden = false;
+    button.classList.add("open");
+    button.setAttribute("aria-expanded", "true");
+    window.requestAnimationFrame(() => {
+      if (!panel.hidden) {
+        panel.classList.add("open");
+      }
+    });
+    return;
+  }
+
+  panel.classList.remove("open");
+  button.classList.remove("open");
+  button.setAttribute("aria-expanded", "false");
+
+  const closeTimer = window.setTimeout(() => {
+    if (!panel.classList.contains("open")) {
+      panel.hidden = true;
+    }
+  }, 210);
+  disclosureTimers.set(panel, closeTimer);
+}
+
+function setUnitPanel(open) {
+  if (open) {
+    setDisclosure(els.modeMenuPanel, els.modeMenuButton, false);
+  }
+  setDisclosure(els.unitListPanel, els.unitMenuButton, open);
+}
+
+function setModePanel(open) {
+  if (open) {
+    setDisclosure(els.unitListPanel, els.unitMenuButton, false);
+  }
+  setDisclosure(els.modeMenuPanel, els.modeMenuButton, open);
 }
 
 function switchPanel(panelName) {
@@ -258,6 +355,8 @@ function switchPanel(panelName) {
   const [tab, panel] = map[panelName];
   tab.classList.add("active");
   panel.classList.add("active");
+  els.currentModeLabel.textContent = MODE_LABELS[panelName] || MODE_LABELS.pdf;
+  setModePanel(false);
 }
 
 function renderAll() {
@@ -269,6 +368,7 @@ function renderAll() {
 function renderUnitHeader() {
   const unit = getCurrentUnit();
   els.unitTitle.textContent = `Unit ${unit.number}: ${unit.title}`;
+  els.currentUnitLabel.textContent = `Unit ${unit.number}`;
   els.unitDescription.textContent = unit.description;
   els.learnHeading.textContent = `Từ vựng Unit ${unit.number}`;
 }
@@ -581,13 +681,481 @@ async function loadSavedPdfFile() {
   });
 }
 
-function showPdfFile(record) {
+function configurePdfJs() {
+  if (!window.pdfjsLib) {
+    throw new Error("Không tải được PDF.js. Kiểm tra kết nối mạng rồi mở lại trang.");
+  }
+
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
+  return window.pdfjsLib;
+}
+
+function configureTurnJs() {
+  if (!window.jQuery || !window.jQuery.fn || !window.jQuery.fn.turn) {
+    throw new Error("Không tải được hiệu ứng lật sách Turn.js.");
+  }
+  return window.jQuery;
+}
+
+function getPdfFlipbook() {
+  return window.jQuery ? window.jQuery(els.pdfFlipbook) : null;
+}
+
+function isPdfFlipbookReady() {
+  const flipbook = getPdfFlipbook();
+  if (!flipbook || !window.jQuery.fn.turn) {
+    return false;
+  }
+
+  try {
+    return Boolean(flipbook.turn("is"));
+  } catch {
+    return false;
+  }
+}
+
+function clampPdfPage(page) {
+  const total = state.pdfDoc?.numPages || 1;
+  return Math.min(Math.max(Number(page) || 1, 1), total);
+}
+
+function isPdfSpreadMode() {
+  return window.matchMedia(PDF_SPREAD_QUERY).matches && (state.pdfDoc?.numPages || 0) > 1;
+}
+
+function getPdfDisplayMode() {
+  return isPdfSpreadMode() ? "double" : "single";
+}
+
+function getFallbackPdfView(page = state.pdfPage) {
+  const total = state.pdfDoc?.numPages || 0;
+  const safePage = clampPdfPage(page);
+  if (!isPdfSpreadMode()) {
+    return [safePage];
+  }
+
+  const leftPage = safePage % 2 ? safePage - 1 : safePage;
+  const rightPage = leftPage + 1;
+  return [leftPage > 0 ? leftPage : 0, rightPage <= total ? rightPage : 0];
+}
+
+function getPdfTurnView(page = state.pdfPage) {
+  if (!isPdfFlipbookReady()) {
+    return getFallbackPdfView(page);
+  }
+
+  try {
+    return getPdfFlipbook().turn("view", clampPdfPage(page));
+  } catch {
+    return getFallbackPdfView(page);
+  }
+}
+
+function getVisiblePdfPages(page = state.pdfPage) {
+  return getPdfTurnView(page).filter((item) => item > 0 && item <= (state.pdfDoc?.numPages || 0));
+}
+
+function cancelPdfRenderTasks() {
+  state.pdfRenderTasks.forEach((task) => {
+    try {
+      task.cancel();
+    } catch {
+      // Render tasks may already be settled.
+    }
+  });
+  state.pdfRenderTasks = [];
+}
+
+function setPdfReaderStatus(message) {
+  els.pdfEmptyState.textContent = message;
+  els.pdfEmptyState.classList.remove("hidden");
+  els.pdfFlipbook.classList.add("hidden");
+}
+
+function updatePdfControls() {
+  const hasPdf = Boolean(state.pdfDoc);
+  const total = state.pdfDoc?.numPages || 0;
+  const page = clampPdfPage(state.pdfPage);
+  const visiblePages = hasPdf ? getVisiblePdfPages(page) : [];
+  const firstVisiblePage = visiblePages.length ? Math.min(...visiblePages) : page;
+  const lastVisiblePage = visiblePages.length ? Math.max(...visiblePages) : page;
+  const canNavigate = hasPdf && !state.pdfTurning;
+  const canGoBack = canNavigate && firstVisiblePage > 1;
+  const canGoForward = canNavigate && lastVisiblePage < total;
+  const progressPercent = hasPdf
+    ? canGoForward
+      ? Math.max((lastVisiblePage / total) * 100, 2)
+      : 100
+    : 0;
+
+  state.pdfPage = page;
+  els.pdfPrevButton.disabled = !canGoBack;
+  els.pdfTurnPrevButton.disabled = !canGoBack;
+  els.pdfNextButton.disabled = !canGoForward;
+  els.pdfTurnNextButton.disabled = !canGoForward;
+  els.pdfPageInput.disabled = !canNavigate;
+  els.pdfPageInput.max = String(Math.max(total, 1));
+  els.pdfPageInput.value = String(hasPdf ? page : 1);
+  els.pdfPageTotal.textContent = `/ ${total}`;
+  els.pdfZoomOutButton.disabled = !canNavigate || state.pdfZoom <= PDF_MIN_ZOOM;
+  els.pdfZoomInButton.disabled = !canNavigate || state.pdfZoom >= PDF_MAX_ZOOM;
+  els.pdfFitButton.disabled = !canNavigate || state.pdfZoom === 1;
+  els.pdfZoomLabel.textContent = `${Math.round(state.pdfZoom * 100)}%`;
+  els.pdfProgressBar.style.width = `${progressPercent}%`;
+  els.pdfReader.classList.toggle("turning", state.pdfTurning);
+}
+
+function createPdfFlipPage(pageNumber) {
+  const page = document.createElement("div");
+  const inner = document.createElement("div");
+  const canvas = document.createElement("canvas");
+  const loading = document.createElement("span");
+  const number = document.createElement("span");
+
+  page.className = "pdf-flip-page";
+  page.dataset.pageNumber = String(pageNumber);
+  inner.className = "pdf-flip-page-inner";
+  loading.className = "pdf-page-loading";
+  loading.textContent = "Đang tải trang...";
+  number.className = "pdf-sheet-number";
+  number.textContent = `Trang ${pageNumber}`;
+  inner.append(canvas, loading, number);
+  page.append(inner);
+  return page;
+}
+
+function destroyPdfFlipbook() {
+  cancelPdfRenderTasks();
+
+  if (isPdfFlipbookReady()) {
+    try {
+      getPdfFlipbook().turn("destroy");
+    } catch {
+      // A partially initialized book can fail destroy; replacing children below resets it.
+    }
+  }
+
+  els.pdfFlipbook.replaceChildren();
+  els.pdfFlipbook.removeAttribute("style");
+  state.pdfRenderedPages.clear();
+}
+
+function getPdfFlipbookSize() {
+  const bookRect = els.pdfBook.getBoundingClientRect();
+  const availableWidth = Math.max(280, bookRect.width - 48);
+  const availableHeight = Math.max(320, bookRect.height - 48);
+  const pageRatio = state.pdfPageRatio || 0.707;
+  const displayRatio = getPdfDisplayMode() === "double" ? pageRatio * 2 : pageRatio;
+  let width = availableWidth * state.pdfZoom;
+  let height = width / displayRatio;
+
+  if (height > availableHeight * state.pdfZoom) {
+    height = availableHeight * state.pdfZoom;
+    width = height * displayRatio;
+  }
+
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
+function getPdfPageElement(pageNumber) {
+  if (!isPdfFlipbookReady()) {
+    return els.pdfFlipbook.querySelector(`[data-page-number="${pageNumber}"]`);
+  }
+
+  const data = getPdfFlipbook().turn("data");
+  return data?.pageObjs?.[pageNumber]?.[0] || null;
+}
+
+function getPdfPageRenderBox(pageElement) {
+  const rect = pageElement.getBoundingClientRect();
+  if (rect.width && rect.height) {
+    return {
+      width: Math.max(120, rect.width - 24),
+      height: Math.max(160, rect.height - 34),
+    };
+  }
+
+  const size = getPdfFlipbookSize();
+  return {
+    width: Math.max(120, (getPdfDisplayMode() === "double" ? size.width / 2 : size.width) - 24),
+    height: Math.max(160, size.height - 34),
+  };
+}
+
+async function renderPdfFlipPage(pageNumber, force = false) {
+  if (!state.pdfDoc || pageNumber < 1 || pageNumber > state.pdfDoc.numPages) {
+    return;
+  }
+
+  const pageElement = getPdfPageElement(pageNumber);
+  if (!pageElement || (!force && state.pdfRenderedPages.has(pageNumber))) {
+    return;
+  }
+
+  if (pageElement.dataset.rendering === "true") {
+    return;
+  }
+
+  const canvas = pageElement.querySelector("canvas");
+  const loading = pageElement.querySelector(".pdf-page-loading");
+  const renderId = state.pdfRenderId;
+  let renderTask = null;
+  pageElement.dataset.rendering = "true";
+  pageElement.classList.remove("rendered");
+  loading.hidden = false;
+
+  try {
+    const page = await state.pdfDoc.getPage(pageNumber);
+    if (renderId !== state.pdfRenderId) {
+      return;
+    }
+
+    const baseViewport = page.getViewport({ scale: 1 });
+    const box = getPdfPageRenderBox(pageElement);
+    const fitScale = Math.min(box.width / baseViewport.width, box.height / baseViewport.height);
+    const viewport = page.getViewport({ scale: Math.max(0.1, fitScale) });
+    const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+    const context = canvas.getContext("2d", { alpha: false });
+
+    canvas.width = Math.floor(viewport.width * outputScale);
+    canvas.height = Math.floor(viewport.height * outputScale);
+    canvas.style.width = `${Math.floor(viewport.width)}px`;
+    canvas.style.height = `${Math.floor(viewport.height)}px`;
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+
+    renderTask = page.render({
+      canvasContext: context,
+      viewport,
+      transform: outputScale === 1 ? null : [outputScale, 0, 0, outputScale, 0, 0],
+    });
+
+    state.pdfRenderTasks.push(renderTask);
+    await renderTask.promise;
+    state.pdfRenderedPages.add(pageNumber);
+    pageElement.classList.add("rendered");
+    loading.hidden = true;
+  } catch (error) {
+    if (error?.name !== "RenderingCancelledException") {
+      loading.textContent = "Không tải được trang";
+    }
+  } finally {
+    if (renderTask) {
+      state.pdfRenderTasks = state.pdfRenderTasks.filter((task) => task !== renderTask);
+    }
+    pageElement.dataset.rendering = "false";
+  }
+}
+
+function getPagesAroundPdfView(view = getPdfTurnView()) {
+  const total = state.pdfDoc?.numPages || 0;
+  const visible = view.filter((page) => page > 0 && page <= total);
+  const anchor = visible.length ? visible : [state.pdfPage];
+  const first = Math.max(1, Math.min(...anchor) - 2);
+  const last = Math.min(total, Math.max(...anchor) + 2);
+  return Array.from({ length: last - first + 1 }, (_, index) => first + index);
+}
+
+function renderPdfPagesAroundView(view = getPdfTurnView(), force = false) {
+  return Promise.all(getPagesAroundPdfView(view).map((page) => renderPdfFlipPage(page, force)));
+}
+
+function updatePdfFlipbookLayout(forceRender = false) {
+  if (!isPdfFlipbookReady()) {
+    updatePdfControls();
+    return;
+  }
+
+  const size = getPdfFlipbookSize();
+  const display = getPdfDisplayMode();
+  const flipbook = getPdfFlipbook();
+  els.pdfBook.classList.toggle("single-page", display === "single");
+  flipbook.turn("display", display);
+  flipbook.turn("size", size.width, size.height);
+
+  if (forceRender) {
+    state.pdfRenderId += 1;
+    cancelPdfRenderTasks();
+    state.pdfRenderedPages.clear();
+    els.pdfFlipbook.querySelectorAll(".pdf-flip-page").forEach((page) => {
+      page.dataset.rendering = "false";
+    });
+  }
+
+  renderPdfPagesAroundView(getPdfTurnView(), forceRender);
+  updatePdfControls();
+}
+
+async function initPdfFlipbook() {
+  const $ = configureTurnJs();
+  destroyPdfFlipbook();
+
+  const firstPage = await state.pdfDoc.getPage(1);
+  const firstViewport = firstPage.getViewport({ scale: 1 });
+  state.pdfPageRatio = firstViewport.width / firstViewport.height;
+  state.pdfRenderedPages.clear();
+
+  const fragment = document.createDocumentFragment();
+  for (let pageNumber = 1; pageNumber <= state.pdfDoc.numPages; pageNumber += 1) {
+    fragment.append(createPdfFlipPage(pageNumber));
+  }
+
+  els.pdfFlipbook.append(fragment);
+  els.pdfEmptyState.classList.add("hidden");
+  els.pdfFlipbook.classList.remove("hidden");
+
+  const size = getPdfFlipbookSize();
+  const display = getPdfDisplayMode();
+  els.pdfBook.classList.toggle("single-page", display === "single");
+
+  $(els.pdfFlipbook).turn({
+    width: size.width,
+    height: size.height,
+    page: state.pdfPage,
+    pages: state.pdfDoc.numPages,
+    display,
+    acceleration: true,
+    gradients: true,
+    elevation: 90,
+    duration: 720,
+    autoCenter: true,
+    turnCorners: "bl,br",
+    when: {
+      start: () => {
+        state.pdfTurning = true;
+        updatePdfControls();
+      },
+      turning: (_event, page, view) => {
+        state.pdfTurning = true;
+        state.pdfPage = clampPdfPage(page);
+        renderPdfPagesAroundView(view);
+        updatePdfControls();
+      },
+      turned: (_event, page, view) => {
+        state.pdfTurning = false;
+        state.pdfPage = clampPdfPage(page);
+        renderPdfPagesAroundView(view);
+        updatePdfControls();
+      },
+      end: () => {
+        state.pdfTurning = false;
+        updatePdfControls();
+      },
+      missing: (_event, pages) => {
+        Promise.all(pages.map((page) => renderPdfFlipPage(page)));
+      },
+    },
+  });
+
+  await renderPdfPagesAroundView(getPdfTurnView(), true);
+  updatePdfControls();
+}
+
+async function goToPdfPage(page) {
+  if (!state.pdfDoc || state.pdfTurning) {
+    return;
+  }
+
+  const nextPage = clampPdfPage(page);
+  if (!isPdfFlipbookReady()) {
+    state.pdfPage = nextPage;
+    updatePdfControls();
+    return;
+  }
+
+  await renderPdfPagesAroundView(getPdfTurnView(nextPage));
+  getPdfFlipbook().turn("page", nextPage);
+}
+
+function nextPdfPage() {
+  if (!state.pdfDoc || state.pdfTurning || !isPdfFlipbookReady()) {
+    return;
+  }
+  getPdfFlipbook().turn("next");
+}
+
+function previousPdfPage() {
+  if (!state.pdfDoc || state.pdfTurning || !isPdfFlipbookReady()) {
+    return;
+  }
+  getPdfFlipbook().turn("previous");
+}
+
+function changePdfZoom(delta) {
+  if (!state.pdfDoc) {
+    return;
+  }
+
+  const nextZoom = Math.min(PDF_MAX_ZOOM, Math.max(PDF_MIN_ZOOM, state.pdfZoom + delta));
+  if (nextZoom === state.pdfZoom) {
+    return;
+  }
+
+  state.pdfZoom = Number(nextZoom.toFixed(2));
+  updatePdfFlipbookLayout(true);
+}
+
+function fitPdfToFrame() {
+  if (!state.pdfDoc) {
+    return;
+  }
+  state.pdfZoom = 1;
+  updatePdfFlipbookLayout(true);
+}
+
+function handlePdfResize() {
+  if (!state.pdfDoc) {
+    return;
+  }
+
+  window.clearTimeout(state.pdfResizeTimer);
+  state.pdfResizeTimer = window.setTimeout(() => {
+    updatePdfFlipbookLayout(true);
+  }, 140);
+}
+
+function isTypingTarget(target) {
+  return target instanceof HTMLElement && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName);
+}
+
+async function showPdfFile(record) {
+  cancelPdfRenderTasks();
+  state.pdfRenderId += 1;
+  state.pdfTurning = false;
+  destroyPdfFlipbook();
+
+  if (state.pdfDoc) {
+    await state.pdfDoc.destroy();
+  }
+
   if (state.pdfUrl) {
     URL.revokeObjectURL(state.pdfUrl);
   }
+
+  state.pdfDoc = null;
+  state.pdfPage = 1;
+  state.pdfPageRatio = 0.707;
+  state.pdfZoom = 1;
   state.pdfUrl = URL.createObjectURL(record.blob);
-  els.pdfFrame.src = state.pdfUrl;
-  els.pdfFileName.textContent = `Đang mở: ${record.name}. File này đã được lưu trong trình duyệt.`;
+  setPdfReaderStatus("Đang tải PDF...");
+  updatePdfControls();
+
+  try {
+    const pdfjsLib = configurePdfJs();
+    const loadingTask = pdfjsLib.getDocument(state.pdfUrl);
+    state.pdfDoc = await loadingTask.promise;
+    els.pdfFileName.textContent = `Đang mở: ${record.name}. File này đã được lưu trong trình duyệt.`;
+    await initPdfFlipbook();
+  } catch (error) {
+    state.pdfDoc = null;
+    destroyPdfFlipbook();
+    setPdfReaderStatus(`Không đọc được PDF: ${error.message}`);
+    els.pdfFileName.textContent = `Không đọc được PDF: ${error.message}`;
+    updatePdfControls();
+  }
 }
 
 function importUnits() {
@@ -676,9 +1244,73 @@ function clearImportedData() {
   els.importStatus.className = "feedback correct";
 }
 
+function applyTheme(theme, persist = true) {
+  const safeTheme = theme === "dark" ? "dark" : "light";
+  const nextLabel = safeTheme === "dark" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối";
+  document.documentElement.dataset.theme = safeTheme;
+  els.themeToggle.setAttribute("aria-pressed", String(safeTheme === "dark"));
+  els.themeToggle.setAttribute("aria-label", nextLabel);
+  els.themeToggle.title = nextLabel;
+
+  if (persist) {
+    localStorage.setItem(STORAGE_KEYS.theme, safeTheme);
+  }
+}
+
+function toggleTheme() {
+  const currentTheme = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  const nextTheme = currentTheme === "dark" ? "light" : "dark";
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if (reducedMotion || !document.startViewTransition) {
+    applyTheme(nextTheme);
+    return;
+  }
+
+  const root = document.documentElement;
+  root.classList.add("theme-transitioning");
+  root.classList.toggle("theme-transition-reverse", nextTheme === "light");
+
+  const transition = document.startViewTransition(() => {
+    applyTheme(nextTheme);
+  });
+
+  transition.finished.finally(() => {
+    root.classList.remove("theme-transitioning", "theme-transition-reverse");
+  });
+}
+
+function initTheme() {
+  applyTheme(document.documentElement.dataset.theme, false);
+}
+
 function bindEvents() {
   els.pdfInput.addEventListener("change", handlePdfFile);
-  els.unitSelect.addEventListener("change", () => setUnit(els.unitSelect.value));
+  els.pdfPrevButton.addEventListener("click", previousPdfPage);
+  els.pdfTurnPrevButton.addEventListener("click", previousPdfPage);
+  els.pdfNextButton.addEventListener("click", nextPdfPage);
+  els.pdfTurnNextButton.addEventListener("click", nextPdfPage);
+  els.pdfZoomOutButton.addEventListener("click", () => changePdfZoom(-PDF_ZOOM_STEP));
+  els.pdfZoomInButton.addEventListener("click", () => changePdfZoom(PDF_ZOOM_STEP));
+  els.pdfFitButton.addEventListener("click", fitPdfToFrame);
+  els.pdfPageInput.addEventListener("change", () => {
+    goToPdfPage(els.pdfPageInput.value);
+  });
+  els.pdfPageInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      goToPdfPage(els.pdfPageInput.value);
+      els.pdfPageInput.blur();
+    }
+  });
+  window.addEventListener("resize", handlePdfResize);
+  els.modeMenuButton.addEventListener("click", () => {
+    setModePanel(!els.modeMenuPanel.classList.contains("open"));
+  });
+  els.unitMenuButton.addEventListener("click", () => {
+    setUnitPanel(!els.unitListPanel.classList.contains("open"));
+  });
+  els.themeToggle.addEventListener("click", toggleTheme);
   els.importUnitInput.addEventListener("change", () => {
     setUnit(els.importUnitInput.value);
   });
@@ -723,16 +1355,41 @@ function bindEvents() {
   els.importButton.addEventListener("click", importUnits);
   els.exportDataButton.addEventListener("click", exportCurrentData);
   els.clearImportedButton.addEventListener("click", clearImportedData);
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element) || !target.closest(".top-nav")) {
+      setUnitPanel(false);
+      setModePanel(false);
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      setUnitPanel(false);
+      setModePanel(false);
+    }
+    if (!els.pdfPanel.classList.contains("active") || !state.pdfDoc || isTypingTarget(event.target)) {
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      previousPdfPage();
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      nextPdfPage();
+    }
+  });
 }
 
 async function init() {
+  initTheme();
   initUnitControls();
   bindEvents();
   renderAll();
   try {
     const savedPdf = await loadSavedPdfFile();
     if (savedPdf) {
-      showPdfFile(savedPdf);
+      await showPdfFile(savedPdf);
     }
   } catch (error) {
     els.pdfFileName.textContent = `Chọn file PDF để mở. Trình duyệt chưa nạp được PDF đã lưu: ${error.message}`;
