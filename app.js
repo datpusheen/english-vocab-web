@@ -1,4 +1,8 @@
 const DEFAULT_UNIT_COUNT = 42;
+const PDF_DB_NAME = "b1TrainerPdfDb";
+const PDF_DB_VERSION = 1;
+const PDF_STORE_NAME = "files";
+const PDF_RECORD_KEY = "book";
 
 const STORAGE_KEYS = {
   imported: "b1Trainer.importedUnits",
@@ -15,6 +19,7 @@ const state = {
   score: 0,
   results: [],
   answered: false,
+  pdfUrl: "",
 };
 
 const els = {
@@ -524,9 +529,65 @@ function handlePdfFile(event) {
   if (!file) {
     return;
   }
-  const url = URL.createObjectURL(file);
-  els.pdfFrame.src = url;
-  els.pdfFileName.textContent = `Đang mở: ${file.name}`;
+  savePdfFile(file)
+    .then(() => showPdfFile({ name: file.name, blob: file }))
+    .catch((error) => {
+      els.pdfFileName.textContent = `Không lưu được PDF: ${error.message}`;
+    });
+}
+
+function openPdfDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(PDF_DB_NAME, PDF_DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(PDF_STORE_NAME)) {
+        db.createObjectStore(PDF_STORE_NAME, { keyPath: "id" });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function savePdfFile(file) {
+  const db = await openPdfDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(PDF_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(PDF_STORE_NAME);
+    store.put({
+      id: PDF_RECORD_KEY,
+      name: file.name,
+      type: file.type,
+      lastModified: file.lastModified,
+      savedAt: new Date().toISOString(),
+      blob: file,
+    });
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+
+async function loadSavedPdfFile() {
+  const db = await openPdfDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(PDF_STORE_NAME, "readonly");
+    const store = transaction.objectStore(PDF_STORE_NAME);
+    const request = store.get(PDF_RECORD_KEY);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function showPdfFile(record) {
+  if (state.pdfUrl) {
+    URL.revokeObjectURL(state.pdfUrl);
+  }
+  state.pdfUrl = URL.createObjectURL(record.blob);
+  els.pdfFrame.src = state.pdfUrl;
+  els.pdfFileName.textContent = `Đang mở: ${record.name}. File này đã được lưu trong trình duyệt.`;
 }
 
 function importUnits() {
@@ -664,10 +725,18 @@ function bindEvents() {
   els.clearImportedButton.addEventListener("click", clearImportedData);
 }
 
-function init() {
+async function init() {
   initUnitControls();
   bindEvents();
   renderAll();
+  try {
+    const savedPdf = await loadSavedPdfFile();
+    if (savedPdf) {
+      showPdfFile(savedPdf);
+    }
+  } catch (error) {
+    els.pdfFileName.textContent = `Chọn file PDF để mở. Trình duyệt chưa nạp được PDF đã lưu: ${error.message}`;
+  }
 }
 
 init();
