@@ -1,4 +1,6 @@
 const DEFAULT_UNIT_COUNT = 42;
+const MIN_UNIT_COUNT = 1;
+const MAX_UNIT_COUNT = 80;
 const PDF_DB_NAME = "b1TrainerPdfDb";
 const PDF_DB_VERSION = 1;
 const PDF_STORE_NAME = "files";
@@ -8,6 +10,16 @@ const PDF_MIN_ZOOM = 0.7;
 const PDF_MAX_ZOOM = 1.8;
 const PDF_ZOOM_STEP = 0.15;
 const PDF_SPREAD_QUERY = "(min-width: 820px)";
+const PDF_DEFAULT_EDIT_TOOL = "highlight";
+const PDF_DEFAULT_EDIT_COLOR = "#facc15";
+const PDF_DEFAULT_EDIT_SIZE = 8;
+const PDF_EDIT_TOOLS = {
+  pencil: { type: "stroke", opacity: 0.72, sizeScale: 0.62 },
+  ink: { type: "stroke", opacity: 0.94, sizeScale: 1 },
+  marker: { type: "stroke", opacity: 0.38, sizeScale: 2.15, blend: "multiply" },
+  highlight: { type: "box", opacity: 0.34, blend: "multiply" },
+  eraser: { type: "eraser" },
+};
 
 const MODE_LABELS = {
   pdf: "PDF sách",
@@ -24,6 +36,9 @@ const STORAGE_KEYS = {
   progress: "b1Trainer.progress",
   selectedUnit: "b1Trainer.selectedUnit",
   theme: "b1Trainer.theme",
+  activity: "b1Trainer.activity",
+  unitCount: "b1Trainer.unitCount",
+  accent: "b1Trainer.accent",
 };
 
 const TEST_METHODS = {
@@ -68,6 +83,26 @@ const state = {
   pdfRenderedPages: new Set(),
   pdfResizeTimer: 0,
   pdfTurning: false,
+  pdfEditOpen: false,
+  pdfEditTool: PDF_DEFAULT_EDIT_TOOL,
+  pdfEditColor: PDF_DEFAULT_EDIT_COLOR,
+  pdfEditSize: PDF_DEFAULT_EDIT_SIZE,
+  pdfAnnotationDraft: null,
+  pdfSearchQuery: "",
+  pdfSearchResults: [],
+  pdfSearchIndex: -1,
+  pdfSearchStatus: "",
+  pdfSearchRevision: 0,
+  pdfSearchMatches: new Map(),
+  pdfTextCache: new Map(),
+  pdfViewportCache: new Map(),
+  pdfPanning: false,
+  pdfPanStart: null,
+  pdfPanX: 0,
+  pdfPanY: 0,
+  pdfHudVisible: false,
+  pdfHudTimer: 0,
+  pdfWheelZoomTimer: 0,
 };
 
 const els = {
@@ -85,6 +120,22 @@ const els = {
   pdfFileName: document.querySelector("#pdfFileName"),
   pdfReader: document.querySelector("#pdfReader"),
   pdfBook: document.querySelector("#pdfBook"),
+  pdfFullscreenHud: document.querySelector("#pdfFullscreenHud"),
+  pdfFullscreenProgressBar: document.querySelector("#pdfFullscreenProgressBar"),
+  pdfFullscreenTools: document.querySelector(".pdf-fullscreen-tools"),
+  pdfEditButton: document.querySelector("#pdfEditButton"),
+  pdfEditPanel: document.querySelector("#pdfEditPanel"),
+  pdfEditToolButtons: document.querySelectorAll("[data-pdf-tool]"),
+  pdfEditColorButtons: document.querySelectorAll("[data-pdf-color]"),
+  pdfEditSizeInput: document.querySelector("#pdfEditSizeInput"),
+  pdfEditSizeValue: document.querySelector("#pdfEditSizeValue"),
+  pdfClearAnnotationsButton: document.querySelector("#pdfClearAnnotationsButton"),
+  pdfSearchForm: document.querySelector("#pdfSearchForm"),
+  pdfSearchInput: document.querySelector("#pdfSearchInput"),
+  pdfSearchPrevButton: document.querySelector("#pdfSearchPrevButton"),
+  pdfSearchNextButton: document.querySelector("#pdfSearchNextButton"),
+  pdfSearchCount: document.querySelector("#pdfSearchCount"),
+  pdfFullscreenCloseButton: document.querySelector("#pdfFullscreenCloseButton"),
   pdfEmptyState: document.querySelector("#pdfEmptyState"),
   pdfFlipbook: document.querySelector("#pdfFlipbook"),
   pdfPrevButton: document.querySelector("#pdfPrevButton"),
@@ -96,6 +147,7 @@ const els = {
   pdfZoomOutButton: document.querySelector("#pdfZoomOutButton"),
   pdfZoomInButton: document.querySelector("#pdfZoomInButton"),
   pdfFitButton: document.querySelector("#pdfFitButton"),
+  pdfFullscreenButton: document.querySelector("#pdfFullscreenButton"),
   pdfZoomLabel: document.querySelector("#pdfZoomLabel"),
   pdfProgressBar: document.querySelector("#pdfProgressBar"),
   unitList: document.querySelector("#unitList"),
@@ -105,7 +157,11 @@ const els = {
   modeMenuButton: document.querySelector("#modeMenuButton"),
   modeMenuPanel: document.querySelector("#modeMenuPanel"),
   currentModeLabel: document.querySelector("#currentModeLabel"),
+  settingsPanel: document.querySelector("#settingsPanel"),
   themeToggle: document.querySelector("#themeToggle"),
+  accentChoiceInputs: document.querySelectorAll('input[name="accentChoice"]'),
+  unitCountInput: document.querySelector("#unitCountInput"),
+  resetSettingsButton: document.querySelector("#resetSettingsButton"),
   unitInput: document.querySelector("#unitInput"),
   importUnitInput: document.querySelector("#importUnitInput"),
   unitTitle: document.querySelector("#unitTitle"),
@@ -115,6 +171,21 @@ const els = {
   masteredCount: document.querySelector("#masteredCount"),
   scoreCount: document.querySelector("#scoreCount"),
   readyPercent: document.querySelector("#readyPercent"),
+  readinessRing: document.querySelector("#readinessRing"),
+  readinessRingValue: document.querySelector("#readinessRingValue"),
+  heroFocusTitle: document.querySelector("#heroFocusTitle"),
+  heroFocusText: document.querySelector("#heroFocusText"),
+  heroXpBadge: document.querySelector("#heroXpBadge"),
+  coachTitle: document.querySelector("#coachTitle"),
+  coachMessage: document.querySelector("#coachMessage"),
+  coachStartButton: document.querySelector("#coachStartButton"),
+  coachReviewButton: document.querySelector("#coachReviewButton"),
+  streakDays: document.querySelector("#streakDays"),
+  todayXp: document.querySelector("#todayXp"),
+  reviewCount: document.querySelector("#reviewCount"),
+  pathProgressLabel: document.querySelector("#pathProgressLabel"),
+  pathProgressBar: document.querySelector("#pathProgressBar"),
+  pathNodes: document.querySelector("#pathNodes"),
   showLearnButton: document.querySelector("#showLearnButton"),
   startTestButton: document.querySelector("#startTestButton"),
   startTestSideButton: document.querySelector("#startTestSideButton"),
@@ -126,6 +197,7 @@ const els = {
   questionCard: document.querySelector("#questionCard"),
   questionIndex: document.querySelector("#questionIndex"),
   questionScore: document.querySelector("#questionScore"),
+  questionProgressBar: document.querySelector("#questionProgressBar"),
   questionPrompt: document.querySelector("#questionPrompt"),
   questionMeaning: document.querySelector("#questionMeaning"),
   questionMeta: document.querySelector("#questionMeta"),
@@ -168,6 +240,22 @@ function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function clampNumber(value, min, max) {
+  const number = Number.parseInt(value, 10);
+  if (!Number.isFinite(number)) {
+    return min;
+  }
+  return Math.min(max, Math.max(min, number));
+}
+
+function getUnitCount() {
+  return clampNumber(localStorage.getItem(STORAGE_KEYS.unitCount) || DEFAULT_UNIT_COUNT, MIN_UNIT_COUNT, MAX_UNIT_COUNT);
+}
+
+function getUnitIdByNumber(number) {
+  return `unit-${String(number).padStart(2, "0")}`;
+}
+
 function normalize(value) {
   return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -182,10 +270,10 @@ function escapeHtml(value) {
 }
 
 function createEmptyUnits() {
-  return Array.from({ length: DEFAULT_UNIT_COUNT }, (_, index) => {
+  return Array.from({ length: getUnitCount() }, (_, index) => {
     const number = index + 1;
     return {
-      id: `unit-${String(number).padStart(2, "0")}`,
+      id: getUnitIdByNumber(number),
       number,
       title: `Unit ${number}`,
       description:
@@ -225,12 +313,13 @@ function normalizeUnit(unit, index) {
 function getImportedUnits() {
   const imported = loadJson(STORAGE_KEYS.imported, []);
   const baseUnits = createEmptyUnits();
+  const unitCount = getUnitCount();
 
   if (!Array.isArray(imported) || !imported.length) {
     return baseUnits;
   }
 
-  imported.map(normalizeUnit).forEach((importedUnit) => {
+  imported.map(normalizeUnit).filter((unit) => unit.number <= unitCount).forEach((importedUnit) => {
     const targetIndex = baseUnits.findIndex((unit) => unit.id === importedUnit.id);
     if (targetIndex >= 0) {
       baseUnits[targetIndex] = importedUnit;
@@ -272,6 +361,155 @@ function makeWordId(word) {
   return `${word.unitId}:${normalize(word.english)}`;
 }
 
+function getLocalDateKey(offset = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getActivityHistory() {
+  const history = loadJson(STORAGE_KEYS.activity, {});
+  return history && typeof history === "object" && !Array.isArray(history) ? history : {};
+}
+
+function hasActivity(entry) {
+  return Boolean(entry && ((entry.xp || 0) > 0 || (entry.sessions || 0) > 0 || (entry.mastered || 0) > 0));
+}
+
+function recordActivity({ xp = 0, sessions = 0, mastered = 0 } = {}) {
+  const history = getActivityHistory();
+  const today = getLocalDateKey();
+  const entry = history[today] || { xp: 0, sessions: 0, mastered: 0 };
+  entry.xp = Math.max(0, (entry.xp || 0) + xp);
+  entry.sessions = Math.max(0, (entry.sessions || 0) + sessions);
+  entry.mastered = Math.max(0, (entry.mastered || 0) + mastered);
+  history[today] = entry;
+  saveJson(STORAGE_KEYS.activity, history);
+  return entry;
+}
+
+function getActivitySummary() {
+  const history = getActivityHistory();
+  const todayKey = getLocalDateKey();
+  const today = history[todayKey] || { xp: 0, sessions: 0, mastered: 0 };
+  let streak = 0;
+  let offset = hasActivity(today) ? 0 : -1;
+
+  for (; offset > -365; offset -= 1) {
+    const entry = history[getLocalDateKey(offset)];
+    if (!hasActivity(entry)) {
+      break;
+    }
+    streak += 1;
+  }
+
+  return { today, streak };
+}
+
+function getUnitStats(unit = getCurrentUnit()) {
+  const mastered = getMasteredMap();
+  const progress = loadJson(STORAGE_KEYS.progress, {});
+  const unitProgress = progress[unit.id] || { score: 0, total: 0 };
+  const wordCount = unit.words.length;
+  const masteredWords = unit.words.filter((word) => mastered[makeWordId(word)]);
+  const unmasteredWords = unit.words.filter((word) => !mastered[makeWordId(word)]);
+  const masteredRate = wordCount ? masteredWords.length / wordCount : 0;
+  const scoreRate = unitProgress.total ? unitProgress.score / unitProgress.total : 0;
+  const readiness = wordCount
+    ? Math.round((unitProgress.total ? masteredRate * 0.6 + scoreRate * 0.4 : masteredRate) * 100)
+    : 0;
+
+  return {
+    wordCount,
+    masteredCount: masteredWords.length,
+    unmasteredCount: unmasteredWords.length,
+    focusWords: unmasteredWords.slice(0, 4),
+    unitProgress,
+    scoreRate,
+    readiness: Math.min(100, Math.max(0, readiness)),
+  };
+}
+
+function getRecommendedMethod(stats = getUnitStats()) {
+  if (!stats.wordCount || stats.masteredCount < Math.max(3, Math.ceil(stats.wordCount * 0.25))) {
+    return "flashcard";
+  }
+  if (stats.readiness < 58) {
+    return "choice";
+  }
+  if (stats.readiness < 82) {
+    return "truefalse";
+  }
+  return "typing";
+}
+
+function syncSettingsControls() {
+  if (els.unitCountInput) {
+    els.unitCountInput.value = String(getUnitCount());
+  }
+
+  const currentAccent = ["teal", "violet", "coral"].includes(document.documentElement.dataset.accent)
+    ? document.documentElement.dataset.accent
+    : "teal";
+  els.accentChoiceInputs.forEach((input) => {
+    input.checked = input.value === currentAccent;
+  });
+}
+
+function setUnitCount(value) {
+  const unitCount = clampNumber(value, MIN_UNIT_COUNT, MAX_UNIT_COUNT);
+  localStorage.setItem(STORAGE_KEYS.unitCount, String(unitCount));
+
+  const units = getUnits();
+  if (!units.some((unit) => unit.id === state.unitId)) {
+    state.unitId = getUnitIdByNumber(unitCount);
+    localStorage.setItem(STORAGE_KEYS.selectedUnit, state.unitId);
+  }
+
+  initUnitControls();
+  renderAll();
+}
+
+function getCoachCopy(unit, stats, method) {
+  if (!stats.wordCount) {
+    return {
+      title: "Unit này cần dữ liệu học",
+      message: "Thêm từ thủ công hoặc import JSON, sau đó app sẽ dựng lộ trình luyện ngay.",
+      focusTitle: "Chưa có từ để luyện",
+      focusText: "Mở tab Thêm từ hoặc Import để chuẩn bị bài.",
+    };
+  }
+
+  if (stats.readiness >= 82) {
+    return {
+      title: "Unit này đã gần sẵn sàng",
+      message: `Bạn đã nắm ${stats.masteredCount}/${stats.wordCount} từ. Chuyển sang ${TEST_METHODS[method].label.toLowerCase()} để kiểm tra nhớ chủ động.`,
+      focusTitle: "Tăng độ khó",
+      focusText: "Typing giúp khóa lại chính tả và khả năng nhớ từ.",
+    };
+  }
+
+  if (stats.masteredCount > 0 || stats.unitProgress.total) {
+    const focus = stats.focusWords.map((word) => word.english).join(", ") || "những từ đã sai";
+    return {
+      title: "Ôn đúng điểm yếu trước",
+      message: `Còn ${stats.unmasteredCount} từ cần ôn trong ${unit.title}. Ưu tiên: ${focus}.`,
+      focusTitle: "Tập trung từ yếu",
+      focusText: focus,
+    };
+  }
+
+  return {
+    title: "Khởi động bằng nhận diện",
+    message: `Unit này có ${stats.wordCount} từ. Bắt đầu với flashcard rồi chuyển sang trắc nghiệm khi đã quen mặt chữ.`,
+    focusTitle: "Bắt đầu nhẹ nhàng",
+    focusText: "Flashcard trước, trắc nghiệm sau, typing cuối cùng.",
+  };
+}
+
 function initUnitControls() {
   const units = getUnits();
   els.unitInput.innerHTML = "";
@@ -279,6 +517,7 @@ function initUnitControls() {
   els.unitList.innerHTML = "";
 
   units.forEach((unit) => {
+    const stats = getUnitStats(unit);
     const label = `Unit ${unit.number}: ${unit.title}`;
     const detail =
       unit.title === `Unit ${unit.number}`
@@ -294,19 +533,26 @@ function initUnitControls() {
     button.className = `unit-card ${unit.id === state.unitId ? "active" : ""}`;
     button.type = "button";
     button.dataset.unitId = unit.id;
+    button.style.setProperty("--unit-progress", `${stats.readiness}%`);
     button.innerHTML = `
-      <strong>Unit ${unit.number}</strong>
+      <span class="unit-card-top">
+        <strong>Unit ${unit.number}</strong>
+        <em>${stats.readiness}%</em>
+      </span>
       <span>${escapeHtml(detail)}</span>
+      <i class="unit-card-progress" aria-hidden="true"><b></b></i>
     `;
     els.unitList.append(button);
   });
 
   if (!units.some((unit) => unit.id === state.unitId)) {
-    state.unitId = units[0].id;
+    state.unitId = units[units.length - 1].id;
+    localStorage.setItem(STORAGE_KEYS.selectedUnit, state.unitId);
   }
 
   els.unitInput.value = state.unitId;
   els.importUnitInput.value = state.unitId;
+  syncSettingsControls();
 }
 
 function setUnit(unitId) {
@@ -364,6 +610,7 @@ function setUnitPanel(open) {
 function setModePanel(open) {
   if (open) {
     setDisclosure(els.unitListPanel, els.unitMenuButton, false);
+    syncSettingsControls();
   }
   setDisclosure(els.modeMenuPanel, els.modeMenuButton, open);
 }
@@ -393,6 +640,7 @@ function renderAll() {
   renderUnitHeader();
   renderWordTable();
   updateStats();
+  renderLearningHub();
 }
 
 function renderUnitHeader() {
@@ -418,30 +666,23 @@ function renderWordTable() {
     return;
   }
 
-  els.wordTable.innerHTML = `
-    <div class="word-row header">
-      <span>#</span>
-      <span>English</span>
-      <span>Vietnamese</span>
-      <span>Type</span>
-      <span>Example</span>
-      <span>Status</span>
-    </div>
-  `;
+  els.wordTable.innerHTML = "";
 
   words.forEach((word, index) => {
     const wordId = makeWordId(word);
     const row = document.createElement("div");
-    row.className = "word-row";
+    row.className = `word-row ${mastered[wordId] ? "mastered" : ""}`;
     row.innerHTML = `
-      <span class="index-pill">${index + 1}</span>
-      <span class="word-main">${escapeHtml(word.english)}</span>
-      <span class="meaning">${escapeHtml(word.vietnamese)}</span>
-      <span class="type-tag">${escapeHtml(word.type || "word")}</span>
-      <span class="example">${escapeHtml(word.example || "Tự đặt một câu với từ này.")}</span>
+      <div class="word-card-top">
+        <span class="index-pill">${index + 1}</span>
+        <span class="type-tag">${escapeHtml(word.type || "word")}</span>
+      </div>
+      <h3 class="word-main">${escapeHtml(word.english)}</h3>
+      <p class="meaning">${escapeHtml(word.vietnamese)}</p>
+      <p class="example">${escapeHtml(word.example || "Tự đặt một câu với từ này.")}</p>
       <label class="master-check">
         <input type="checkbox" data-mastered="${escapeHtml(wordId)}" ${mastered[wordId] ? "checked" : ""} />
-        Đã thuộc
+        <span>${mastered[wordId] ? "Đã thuộc" : "Đánh dấu thuộc"}</span>
       </label>
     `;
     els.wordTable.append(row);
@@ -450,16 +691,60 @@ function renderWordTable() {
 
 function updateStats() {
   const unit = getCurrentUnit();
-  const mastered = getMasteredMap();
-  const masteredCount = unit.words.filter((word) => mastered[makeWordId(word)]).length;
-  const progress = loadJson(STORAGE_KEYS.progress, {});
-  const unitProgress = progress[state.unitId] || { score: 0, total: unit.words.length };
-  const readyPercent = unit.words.length ? Math.round((masteredCount / unit.words.length) * 100) : 0;
+  const stats = getUnitStats(unit);
+  const unitProgress = stats.unitProgress;
 
-  els.wordCount.textContent = unit.words.length;
-  els.masteredCount.textContent = masteredCount;
+  els.wordCount.textContent = stats.wordCount;
+  els.masteredCount.textContent = stats.masteredCount;
   els.scoreCount.textContent = `${unitProgress.score}/${unitProgress.total || unit.words.length}`;
-  els.readyPercent.textContent = `${readyPercent}%`;
+  els.readyPercent.textContent = `${stats.readiness}%`;
+}
+
+function renderLearningHub() {
+  const unit = getCurrentUnit();
+  const stats = getUnitStats(unit);
+  const method = getRecommendedMethod(stats);
+  const coach = getCoachCopy(unit, stats, method);
+  const activity = getActivitySummary();
+  const units = getUnits();
+  const currentIndex = Math.max(0, units.findIndex((item) => item.id === unit.id));
+  const windowStart = Math.max(0, Math.min(currentIndex - 2, Math.max(units.length - 6, 0)));
+  const nearbyUnits = units.slice(windowStart, windowStart + 6);
+
+  els.readinessRing?.style.setProperty("--ready", `${stats.readiness}%`);
+  els.readinessRing?.setAttribute("aria-valuenow", String(stats.readiness));
+  els.readinessRingValue.textContent = `${stats.readiness}%`;
+  els.heroFocusTitle.textContent = coach.focusTitle;
+  els.heroFocusText.textContent = coach.focusText;
+  els.heroXpBadge.textContent = activity.today.xp || 0;
+  els.coachTitle.textContent = coach.title;
+  els.coachMessage.textContent = coach.message;
+  els.coachStartButton.textContent = stats.wordCount
+    ? `Luyện ${TEST_METHODS[method].label}`
+    : "Thêm dữ liệu";
+  els.coachReviewButton.disabled = !stats.wordCount;
+  els.streakDays.textContent = activity.streak;
+  els.todayXp.textContent = activity.today.xp || 0;
+  els.reviewCount.textContent = stats.unmasteredCount;
+  els.pathProgressLabel.textContent = `${stats.readiness}%`;
+  els.pathProgressBar.style.width = `${stats.readiness}%`;
+  els.pathNodes.innerHTML = "";
+
+  nearbyUnits.forEach((pathUnit) => {
+    const pathStats = getUnitStats(pathUnit);
+    const button = document.createElement("button");
+    const statusClass = pathStats.readiness >= 82 ? "done" : pathStats.readiness > 0 ? "started" : "fresh";
+    button.className = `path-node ${statusClass} ${pathUnit.id === unit.id ? "active" : ""}`;
+    button.type = "button";
+    button.dataset.pathUnitId = pathUnit.id;
+    button.style.setProperty("--node-progress", `${pathStats.readiness}%`);
+    button.innerHTML = `
+      <span>${pathUnit.number}</span>
+      <strong>Unit ${pathUnit.number}</strong>
+      <em>${pathStats.wordCount ? `${pathStats.readiness}%` : "trống"}</em>
+    `;
+    els.pathNodes.append(button);
+  });
 }
 
 function getTestWords() {
@@ -680,6 +965,7 @@ function renderQuestion() {
   state.currentQuestion = question;
   els.questionIndex.textContent = `Câu ${state.currentIndex + 1}/${total}`;
   els.questionScore.textContent = `${state.score} đúng`;
+  els.questionProgressBar.style.width = `${Math.round((state.currentIndex / total) * 100)}%`;
   els.questionPrompt.textContent = TEST_METHODS[method].prompt;
   els.questionMeaning.textContent = question.promptText;
   els.questionMeta.textContent = `${word.type || "word"} - ${word.example || "Không có ví dụ"}`;
@@ -816,6 +1102,7 @@ function completeQuestion({ userAnswer, isCorrect, selectedButton = null, skippe
     method: getActiveTestMethod(),
   });
   els.questionScore.textContent = `${state.score} đúng`;
+  els.questionProgressBar.style.width = `${Math.round(((state.currentIndex + 1) / state.testWords.length) * 100)}%`;
 }
 
 function skipQuestion() {
@@ -845,6 +1132,9 @@ function finishTest() {
     updatedAt: new Date().toISOString(),
   };
   saveJson(STORAGE_KEYS.progress, progress);
+  if (total) {
+    recordActivity({ xp: Math.max(6, state.score * 12 + (total - state.score) * 3), sessions: 1 });
+  }
 
   els.questionCard.classList.add("hidden");
   els.resultPanel.classList.remove("hidden");
@@ -867,6 +1157,7 @@ function finishTest() {
 
   els.retryWrongButton.disabled = wrong.length === 0;
   updateStats();
+  renderLearningHub();
 }
 
 function addCustomWord(event) {
@@ -1061,11 +1352,8 @@ function updatePdfControls() {
   const canNavigate = hasPdf && !state.pdfTurning;
   const canGoBack = canNavigate && firstVisiblePage > 1;
   const canGoForward = canNavigate && lastVisiblePage < total;
-  const progressPercent = hasPdf
-    ? canGoForward
-      ? Math.max((lastVisiblePage / total) * 100, 2)
-      : 100
-    : 0;
+  const progressPage = Math.max(page, lastVisiblePage);
+  const progressPercent = hasPdf ? Math.max((progressPage / total) * 100, 2) : 0;
 
   state.pdfPage = page;
   els.pdfPrevButton.disabled = !canGoBack;
@@ -1079,26 +1367,71 @@ function updatePdfControls() {
   els.pdfZoomOutButton.disabled = !canNavigate || state.pdfZoom <= PDF_MIN_ZOOM;
   els.pdfZoomInButton.disabled = !canNavigate || state.pdfZoom >= PDF_MAX_ZOOM;
   els.pdfFitButton.disabled = !canNavigate || state.pdfZoom === 1;
+  els.pdfFullscreenButton.disabled = !hasPdf || !document.fullscreenEnabled;
+  els.pdfFullscreenButton.classList.toggle("active", document.fullscreenElement === els.pdfBook);
+  els.pdfFullscreenButton.setAttribute(
+    "aria-label",
+    document.fullscreenElement === els.pdfBook ? "Thoát toàn màn hình" : "Toàn màn hình",
+  );
+  els.pdfFullscreenButton.title =
+    document.fullscreenElement === els.pdfBook ? "Thoát toàn màn hình" : "Toàn màn hình";
   els.pdfZoomLabel.textContent = `${Math.round(state.pdfZoom * 100)}%`;
   els.pdfProgressBar.style.width = `${progressPercent}%`;
+  els.pdfFullscreenProgressBar.style.width = `${progressPercent}%`;
+  els.pdfFullscreenTools?.classList.toggle("editing-open", state.pdfEditOpen);
+  els.pdfEditButton.disabled = !hasPdf;
+  els.pdfEditButton.classList.toggle("active", state.pdfEditOpen);
+  els.pdfEditButton.setAttribute("aria-expanded", String(state.pdfEditOpen));
+  els.pdfEditPanel.hidden = !state.pdfEditOpen;
+  els.pdfEditSizeInput.disabled = !hasPdf;
+  els.pdfEditSizeInput.value = String(state.pdfEditSize);
+  els.pdfEditSizeValue.textContent = String(state.pdfEditSize);
+  els.pdfClearAnnotationsButton.disabled = !hasPdf;
+  els.pdfEditToolButtons.forEach((button) => {
+    const active = button.dataset.pdfTool === state.pdfEditTool;
+    button.disabled = !hasPdf;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  els.pdfEditColorButtons.forEach((button) => {
+    const active = button.dataset.pdfColor === state.pdfEditColor;
+    button.disabled = !hasPdf;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  els.pdfSearchInput.disabled = !hasPdf;
+  els.pdfSearchPrevButton.disabled = !hasPdf || state.pdfSearchResults.length < 2;
+  els.pdfSearchNextButton.disabled = !hasPdf || state.pdfSearchResults.length < 2;
+  els.pdfSearchCount.textContent =
+    state.pdfSearchStatus ||
+    (state.pdfSearchResults.length ? `${state.pdfSearchIndex + 1}/${state.pdfSearchResults.length}` : "0/0");
+  els.pdfFullscreenCloseButton.disabled = document.fullscreenElement !== els.pdfBook;
   els.pdfReader.classList.toggle("turning", state.pdfTurning);
+  els.pdfReader.classList.toggle("editing", state.pdfEditOpen && state.pdfEditTool !== "eraser");
+  els.pdfReader.classList.toggle("erasing", state.pdfEditOpen && state.pdfEditTool === "eraser");
+  els.pdfBook.classList.toggle("panning", state.pdfPanning);
+  els.pdfBook.classList.toggle("hud-visible", state.pdfHudVisible);
 }
 
 function createPdfFlipPage(pageNumber) {
   const page = document.createElement("div");
   const inner = document.createElement("div");
   const canvas = document.createElement("canvas");
+  const searchLayer = document.createElement("div");
+  const annotationLayer = document.createElement("div");
   const loading = document.createElement("span");
   const number = document.createElement("span");
 
   page.className = "pdf-flip-page";
   page.dataset.pageNumber = String(pageNumber);
   inner.className = "pdf-flip-page-inner";
+  searchLayer.className = "pdf-search-layer";
+  annotationLayer.className = "pdf-annotation-layer";
   loading.className = "pdf-page-loading";
   loading.textContent = "Đang tải trang...";
   number.className = "pdf-sheet-number";
   number.textContent = `Trang ${pageNumber}`;
-  inner.append(canvas, loading, number);
+  inner.append(canvas, searchLayer, annotationLayer, loading, number);
   page.append(inner);
   return page;
 }
@@ -1117,6 +1450,7 @@ function destroyPdfFlipbook() {
   els.pdfFlipbook.replaceChildren();
   els.pdfFlipbook.removeAttribute("style");
   state.pdfRenderedPages.clear();
+  state.pdfViewportCache.clear();
 }
 
 function getPdfFlipbookSize() {
@@ -1164,6 +1498,29 @@ function getPdfPageRenderBox(pageElement) {
   };
 }
 
+function syncPdfPageLayers(pageElement) {
+  if (!pageElement) {
+    return;
+  }
+
+  const canvas = pageElement.querySelector("canvas");
+  if (!canvas || !canvas.offsetWidth || !canvas.offsetHeight) {
+    return;
+  }
+
+  pageElement.querySelectorAll(".pdf-search-layer, .pdf-annotation-layer").forEach((layer) => {
+    layer.style.left = `${canvas.offsetLeft}px`;
+    layer.style.top = `${canvas.offsetTop}px`;
+    layer.style.width = `${canvas.offsetWidth}px`;
+    layer.style.height = `${canvas.offsetHeight}px`;
+  });
+}
+
+function syncAllPdfPageLayers() {
+  els.pdfFlipbook.querySelectorAll(".pdf-flip-page").forEach((pageElement) => {
+    syncPdfPageLayers(pageElement);
+  });
+}
 async function renderPdfFlipPage(pageNumber, force = false) {
   if (!state.pdfDoc || pageNumber < 1 || pageNumber > state.pdfDoc.numPages) {
     return;
@@ -1195,7 +1552,9 @@ async function renderPdfFlipPage(pageNumber, force = false) {
     const baseViewport = page.getViewport({ scale: 1 });
     const box = getPdfPageRenderBox(pageElement);
     const fitScale = Math.min(box.width / baseViewport.width, box.height / baseViewport.height);
-    const viewport = page.getViewport({ scale: Math.max(0.1, fitScale) });
+    const viewportScale = Math.max(0.1, fitScale);
+    const viewport = page.getViewport({ scale: viewportScale });
+    state.pdfViewportCache.set(pageNumber, { scale: viewportScale });
     const outputScale = Math.min(window.devicePixelRatio || 1, 2);
     const context = canvas.getContext("2d", { alpha: false });
 
@@ -1203,6 +1562,7 @@ async function renderPdfFlipPage(pageNumber, force = false) {
     canvas.height = Math.floor(viewport.height * outputScale);
     canvas.style.width = `${Math.floor(viewport.width)}px`;
     canvas.style.height = `${Math.floor(viewport.height)}px`;
+    syncPdfPageLayers(pageElement);
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -1217,6 +1577,7 @@ async function renderPdfFlipPage(pageNumber, force = false) {
     state.pdfRenderedPages.add(pageNumber);
     pageElement.classList.add("rendered");
     loading.hidden = true;
+    renderPdfSearchHighlights(pageNumber);
   } catch (error) {
     if (error?.name !== "RenderingCancelledException") {
       loading.textContent = "Không tải được trang";
@@ -1256,15 +1617,22 @@ function updatePdfFlipbookLayout(forceRender = false) {
   flipbook.turn("size", size.width, size.height);
 
   if (forceRender) {
+    state.pdfPanX = 0;
+    state.pdfPanY = 0;
+    applyPdfPan();
+  }
+
+  if (forceRender) {
     state.pdfRenderId += 1;
     cancelPdfRenderTasks();
     state.pdfRenderedPages.clear();
+  state.pdfViewportCache.clear();
     els.pdfFlipbook.querySelectorAll(".pdf-flip-page").forEach((page) => {
       page.dataset.rendering = "false";
     });
   }
 
-  renderPdfPagesAroundView(getPdfTurnView(), forceRender);
+  renderPdfPagesAroundView(getPdfTurnView(), forceRender).then(renderPdfVisibleSearchHighlights);
   updatePdfControls();
 }
 
@@ -1276,6 +1644,7 @@ async function initPdfFlipbook() {
   const firstViewport = firstPage.getViewport({ scale: 1 });
   state.pdfPageRatio = firstViewport.width / firstViewport.height;
   state.pdfRenderedPages.clear();
+  state.pdfViewportCache.clear();
 
   const fragment = document.createDocumentFragment();
   for (let pageNumber = 1; pageNumber <= state.pdfDoc.numPages; pageNumber += 1) {
@@ -1310,13 +1679,13 @@ async function initPdfFlipbook() {
       turning: (_event, page, view) => {
         state.pdfTurning = true;
         state.pdfPage = clampPdfPage(page);
-        renderPdfPagesAroundView(view);
+        renderPdfPagesAroundView(view).then(renderPdfVisibleSearchHighlights);
         updatePdfControls();
       },
       turned: (_event, page, view) => {
         state.pdfTurning = false;
         state.pdfPage = clampPdfPage(page);
-        renderPdfPagesAroundView(view);
+        renderPdfPagesAroundView(view).then(renderPdfVisibleSearchHighlights);
         updatePdfControls();
       },
       end: () => {
@@ -1330,6 +1699,7 @@ async function initPdfFlipbook() {
   });
 
   await renderPdfPagesAroundView(getPdfTurnView(), true);
+  renderPdfVisibleSearchHighlights();
   updatePdfControls();
 }
 
@@ -1347,6 +1717,593 @@ async function goToPdfPage(page) {
 
   await renderPdfPagesAroundView(getPdfTurnView(nextPage));
   getPdfFlipbook().turn("page", nextPage);
+}
+
+function resetPdfFullscreenTools() {
+  state.pdfEditOpen = false;
+  state.pdfEditTool = PDF_DEFAULT_EDIT_TOOL;
+  state.pdfEditColor = PDF_DEFAULT_EDIT_COLOR;
+  state.pdfEditSize = PDF_DEFAULT_EDIT_SIZE;
+  state.pdfAnnotationDraft = null;
+  state.pdfSearchQuery = "";
+  state.pdfSearchResults = [];
+  state.pdfSearchIndex = -1;
+  state.pdfSearchStatus = "";
+  state.pdfSearchRevision += 1;
+  state.pdfSearchMatches.clear();
+  state.pdfTextCache.clear();
+  state.pdfPanning = false;
+  state.pdfPanStart = null;
+  state.pdfPanX = 0;
+  state.pdfPanY = 0;
+  state.pdfHudVisible = false;
+  window.clearTimeout(state.pdfHudTimer);
+  window.clearTimeout(state.pdfWheelZoomTimer);
+  els.pdfFlipbook.style.setProperty("--pdf-pan-x", "0px");
+  els.pdfFlipbook.style.setProperty("--pdf-pan-y", "0px");
+  els.pdfSearchInput.value = "";
+}
+
+function setPdfHudVisible(visible, autoHide = false) {
+  window.clearTimeout(state.pdfHudTimer);
+  state.pdfHudVisible = visible;
+  updatePdfControls();
+
+  if (visible && autoHide) {
+    state.pdfHudTimer = window.setTimeout(() => {
+      state.pdfHudVisible = false;
+      updatePdfControls();
+    }, 2200);
+  }
+}
+
+function handlePdfFullscreenMouseMove(event) {
+  if (document.fullscreenElement !== els.pdfBook) {
+    return;
+  }
+
+  if (event.clientY <= 96 || event.target.closest(".pdf-fullscreen-tools")) {
+    setPdfHudVisible(true);
+    return;
+  }
+
+  if (state.pdfHudVisible) {
+    window.clearTimeout(state.pdfHudTimer);
+    state.pdfHudTimer = window.setTimeout(() => {
+      state.pdfHudVisible = false;
+      updatePdfControls();
+    }, 650);
+  }
+}
+
+function handlePdfWheelZoom(event) {
+  if (
+    !state.pdfDoc ||
+    state.pdfTurning ||
+    document.fullscreenElement !== els.pdfBook ||
+    event.target.closest(".pdf-fullscreen-hud")
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+  const direction = event.deltaY < 0 ? 1 : -1;
+  const nextZoom = Math.min(
+    PDF_MAX_ZOOM,
+    Math.max(PDF_MIN_ZOOM, Number((state.pdfZoom + direction * 0.08).toFixed(2))),
+  );
+
+  if (nextZoom === state.pdfZoom) {
+    return;
+  }
+
+  state.pdfZoom = nextZoom;
+  els.pdfZoomLabel.textContent = `${Math.round(state.pdfZoom * 100)}%`;
+  updatePdfControls();
+  window.clearTimeout(state.pdfWheelZoomTimer);
+  state.pdfWheelZoomTimer = window.setTimeout(() => {
+    updatePdfFlipbookLayout(true);
+  }, 110);
+}
+
+function applyPdfPan() {
+  els.pdfFlipbook.style.setProperty("--pdf-pan-x", `${state.pdfPanX}px`);
+  els.pdfFlipbook.style.setProperty("--pdf-pan-y", `${state.pdfPanY}px`);
+}
+
+function setPdfEditOpen(open) {
+  if (!state.pdfDoc) {
+    return;
+  }
+  state.pdfEditOpen = Boolean(open);
+  updatePdfControls();
+}
+
+function togglePdfEditPanel() {
+  setPdfEditOpen(!state.pdfEditOpen);
+}
+
+function setPdfEditTool(tool) {
+  if (!PDF_EDIT_TOOLS[tool]) {
+    return;
+  }
+  state.pdfEditTool = tool;
+  updatePdfControls();
+}
+
+function setPdfEditColor(color) {
+  if (!color) {
+    return;
+  }
+  state.pdfEditColor = color;
+  updatePdfControls();
+}
+
+function setPdfEditSize(value) {
+  const size = clampNumber(value, 2, 30);
+  state.pdfEditSize = size;
+  updatePdfControls();
+}
+
+function getPdfEditToolSettings(tool = state.pdfEditTool) {
+  return PDF_EDIT_TOOLS[tool] || PDF_EDIT_TOOLS[PDF_DEFAULT_EDIT_TOOL];
+}
+
+function hexToRgba(color, alpha = 1) {
+  const value = String(color || "").replace("#", "");
+  if (!/^[0-9a-f]{6}$/i.test(value)) {
+    return `rgba(250, 204, 21, ${alpha})`;
+  }
+
+  const r = Number.parseInt(value.slice(0, 2), 16);
+  const g = Number.parseInt(value.slice(2, 4), 16);
+  const b = Number.parseInt(value.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function clearPdfAnnotations() {
+  finishPdfAnnotation();
+  els.pdfFlipbook.querySelectorAll(".pdf-annotation-object").forEach((annotation) => annotation.remove());
+}
+
+function getPdfAnnotationLayer(event) {
+  if (event.target.closest(".pdf-fullscreen-hud")) {
+    return null;
+  }
+
+  const pageInner = event.target.closest(".pdf-flip-page-inner");
+  if (!pageInner) {
+    return null;
+  }
+
+  syncPdfPageLayers(pageInner.closest(".pdf-flip-page"));
+  const layer = pageInner.querySelector(".pdf-annotation-layer");
+  const rect = layer?.getBoundingClientRect();
+  return rect?.width && rect?.height ? layer : null;
+}
+
+function getPdfLayerPoint(event, layer) {
+  const rect = layer.getBoundingClientRect();
+  const x = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+  const y = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+  return {
+    x,
+    y,
+    percentX: rect.width ? (x / rect.width) * 100 : 0,
+    percentY: rect.height ? (y / rect.height) * 100 : 0,
+    normX: rect.width ? (x / rect.width) * 1000 : 0,
+    normY: rect.height ? (y / rect.height) * 1000 : 0,
+  };
+}
+
+function getPdfStrokePath(points) {
+  return points
+    .map((point, index) => `${index ? "L" : "M"} ${point.normX.toFixed(1)} ${point.normY.toFixed(1)}`)
+    .join(" ");
+}
+
+function getPdfStrokeWidth(tool = state.pdfEditTool) {
+  const settings = getPdfEditToolSettings(tool);
+  return Math.max(1, state.pdfEditSize * (settings.sizeScale || 1));
+}
+
+function createPdfStrokeAnnotation(layer, point) {
+  const settings = getPdfEditToolSettings();
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+
+  svg.classList.add("pdf-annotation-object", "pdf-stroke-annotation", `tool-${state.pdfEditTool}`);
+  svg.setAttribute("viewBox", "0 0 1000 1000");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.style.mixBlendMode = settings.blend || "normal";
+  path.setAttribute("d", getPdfStrokePath([point]));
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", hexToRgba(state.pdfEditColor, settings.opacity ?? 0.9));
+  path.setAttribute("stroke-width", String(getPdfStrokeWidth()));
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  path.setAttribute("vector-effect", "non-scaling-stroke");
+  svg.append(path);
+  layer.append(svg);
+  return { type: "stroke", element: svg, path, points: [point] };
+}
+
+function createPdfHighlightAnnotation(layer, point) {
+  const settings = getPdfEditToolSettings("highlight");
+  const highlight = document.createElement("div");
+  highlight.className = "pdf-highlight-box pdf-annotation-object";
+  highlight.style.left = `${point.percentX}%`;
+  highlight.style.top = `${point.percentY}%`;
+  highlight.style.backgroundColor = hexToRgba(state.pdfEditColor, settings.opacity);
+  highlight.style.borderColor = hexToRgba(state.pdfEditColor, 0.62);
+  highlight.style.mixBlendMode = settings.blend || "multiply";
+  layer.append(highlight);
+  return { type: "highlight", element: highlight, start: point };
+}
+
+function updatePdfHighlightAnnotation(draft, point) {
+  const left = Math.min(draft.start.percentX, point.percentX);
+  const top = Math.min(draft.start.percentY, point.percentY);
+  const width = Math.abs(point.percentX - draft.start.percentX);
+  const height = Math.abs(point.percentY - draft.start.percentY);
+  draft.element.style.left = `${left}%`;
+  draft.element.style.top = `${top}%`;
+  draft.element.style.width = `${width}%`;
+  draft.element.style.height = `${height}%`;
+}
+
+function updatePdfStrokeAnnotation(draft, point) {
+  draft.points.push(point);
+  draft.path.setAttribute("d", getPdfStrokePath(draft.points));
+}
+
+function getPdfAnnotationHitRect(annotation) {
+  const path = annotation.querySelector?.("path");
+  return (path || annotation).getBoundingClientRect();
+}
+
+function erasePdfAnnotationAt(event, layer = getPdfAnnotationLayer(event)) {
+  if (!layer) {
+    return;
+  }
+
+  const radius = Math.max(8, state.pdfEditSize * 1.6);
+  const x = event.clientX;
+  const y = event.clientY;
+  layer.querySelectorAll(".pdf-annotation-object").forEach((annotation) => {
+    const rect = getPdfAnnotationHitRect(annotation);
+    const hit =
+      x >= rect.left - radius &&
+      x <= rect.right + radius &&
+      y >= rect.top - radius &&
+      y <= rect.bottom + radius;
+    if (hit) {
+      annotation.remove();
+    }
+  });
+}
+
+function startPdfAnnotation(event) {
+  if (!state.pdfEditOpen || document.fullscreenElement !== els.pdfBook || event.button !== 0) {
+    return;
+  }
+
+  const layer = getPdfAnnotationLayer(event);
+  if (!layer) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (state.pdfEditTool === "eraser") {
+    erasePdfAnnotationAt(event, layer);
+    state.pdfAnnotationDraft = { type: "eraser", layer };
+    return;
+  }
+
+  const point = getPdfLayerPoint(event, layer);
+  const settings = getPdfEditToolSettings();
+  state.pdfAnnotationDraft = settings.type === "box" ? createPdfHighlightAnnotation(layer, point) : createPdfStrokeAnnotation(layer, point);
+  state.pdfAnnotationDraft.layer = layer;
+}
+
+function movePdfAnnotation(event) {
+  const draft = state.pdfAnnotationDraft;
+  if (!draft) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (draft.type === "eraser") {
+    erasePdfAnnotationAt(event, draft.layer);
+    return;
+  }
+
+  const point = getPdfLayerPoint(event, draft.layer);
+  if (draft.type === "highlight") {
+    updatePdfHighlightAnnotation(draft, point);
+  } else {
+    updatePdfStrokeAnnotation(draft, point);
+  }
+}
+
+function finishPdfAnnotation() {
+  const draft = state.pdfAnnotationDraft;
+  if (!draft) {
+    return;
+  }
+
+  if (draft.type === "highlight") {
+    const rect = draft.element.getBoundingClientRect();
+    if (rect.width < 6 || rect.height < 6) {
+      draft.element.remove();
+    }
+  }
+
+  if (draft.type === "stroke" && draft.points.length < 2) {
+    draft.element.remove();
+  }
+
+  state.pdfAnnotationDraft = null;
+}
+async function getPdfPageText(pageNumber) {
+  if (state.pdfTextCache.has(pageNumber)) {
+    return state.pdfTextCache.get(pageNumber);
+  }
+
+  const page = await state.pdfDoc.getPage(pageNumber);
+  const textContent = await page.getTextContent();
+  const text = {
+    normal: "",
+    compact: "",
+    normalSegments: [],
+    compactSegments: [],
+    items: textContent.items,
+  };
+
+  textContent.items.forEach((item, itemIndex) => {
+    const raw = item.str || "";
+    const normalText = normalize(raw);
+    const compactText = compactPdfSearchText(raw);
+
+    if (normalText) {
+      if (text.normal) {
+        text.normal += " ";
+      }
+      const start = text.normal.length;
+      text.normal += normalText;
+      text.normalSegments.push({ start, end: text.normal.length, itemIndex });
+    }
+
+    if (compactText) {
+      const start = text.compact.length;
+      text.compact += compactText;
+      text.compactSegments.push({ start, end: text.compact.length, itemIndex });
+    }
+  });
+
+  state.pdfTextCache.set(pageNumber, text);
+  return text;
+}
+
+function compactPdfSearchText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function findPdfSearchRanges(value, query, mode) {
+  const ranges = [];
+  if (!query) {
+    return ranges;
+  }
+
+  let index = value.indexOf(query);
+  while (index >= 0) {
+    ranges.push({ mode, start: index, end: index + query.length });
+    index = value.indexOf(query, index + Math.max(1, query.length));
+  }
+  return ranges;
+}
+
+function getPdfSearchMatches(text, normalQuery, compactQuery) {
+  return [
+    ...findPdfSearchRanges(text.normal, normalQuery, "normal"),
+    ...findPdfSearchRanges(text.compact, compactQuery, "compact"),
+  ];
+}
+
+function getPdfSegmentsForMatch(text, match) {
+  const segments = match.mode === "compact" ? text.compactSegments : text.normalSegments;
+  return segments.filter((segment) => segment.end > match.start && segment.start < match.end);
+}
+
+function clearPdfSearchHighlights(pageNumber = null) {
+  const root = pageNumber ? getPdfPageElement(pageNumber) : els.pdfFlipbook;
+  root?.querySelectorAll(".pdf-search-highlight").forEach((highlight) => highlight.remove());
+}
+
+function getPdfTextItemBox(item, viewport) {
+  if (!window.pdfjsLib?.Util || !item?.transform) {
+    return null;
+  }
+
+  const transform = window.pdfjsLib.Util.transform(viewport.transform, item.transform);
+  const fontHeight = Math.hypot(transform[2], transform[3]);
+  const width = Math.max(2, Math.abs((item.width || 0) * viewport.scale));
+  const height = Math.max(6, fontHeight || Math.abs((item.height || 0) * viewport.scale));
+  return {
+    left: Math.max(0, transform[4] - 1),
+    top: Math.max(0, transform[5] - height - 1),
+    width: width + 2,
+    height: height + 2,
+  };
+}
+
+async function renderPdfSearchHighlights(pageNumber) {
+  const pageElement = getPdfPageElement(pageNumber);
+  const layer = pageElement?.querySelector(".pdf-search-layer");
+  if (!pageElement || !layer) {
+    return;
+  }
+
+  clearPdfSearchHighlights(pageNumber);
+  const matches = state.pdfSearchMatches.get(pageNumber);
+  if (!matches?.length || !state.pdfRenderedPages.has(pageNumber)) {
+    return;
+  }
+
+  const viewportInfo = state.pdfViewportCache.get(pageNumber);
+  if (!viewportInfo) {
+    return;
+  }
+
+  const revision = state.pdfSearchRevision;
+  const [pageText, page] = await Promise.all([getPdfPageText(pageNumber), state.pdfDoc.getPage(pageNumber)]);
+  if (revision !== state.pdfSearchRevision) {
+    return;
+  }
+
+  syncPdfPageLayers(pageElement);
+  const viewport = page.getViewport({ scale: viewportInfo.scale });
+  const currentPage = state.pdfSearchResults[state.pdfSearchIndex];
+  const fragment = document.createDocumentFragment();
+  const seenItems = new Set();
+
+  matches.forEach((match) => {
+    getPdfSegmentsForMatch(pageText, match).forEach((segment) => {
+      const key = segment.itemIndex;
+      if (seenItems.has(key)) {
+        return;
+      }
+      seenItems.add(key);
+
+      const box = getPdfTextItemBox(pageText.items[segment.itemIndex], viewport);
+      if (!box) {
+        return;
+      }
+
+      const highlight = document.createElement("span");
+      highlight.className = `pdf-search-highlight ${currentPage === pageNumber ? "current" : ""}`;
+      highlight.style.left = `${box.left}px`;
+      highlight.style.top = `${box.top}px`;
+      highlight.style.width = `${box.width}px`;
+      highlight.style.height = `${box.height}px`;
+      fragment.append(highlight);
+    });
+  });
+
+  layer.append(fragment);
+}
+
+function renderPdfVisibleSearchHighlights() {
+  getVisiblePdfPages().forEach((pageNumber) => {
+    renderPdfSearchHighlights(pageNumber);
+  });
+}
+
+async function searchPdf(event) {
+  event?.preventDefault();
+  if (!state.pdfDoc) {
+    return;
+  }
+
+  const query = normalize(els.pdfSearchInput.value);
+  const compactQuery = compactPdfSearchText(els.pdfSearchInput.value);
+  const revision = state.pdfSearchRevision + 1;
+  state.pdfSearchRevision = revision;
+  state.pdfSearchQuery = query;
+  state.pdfSearchResults = [];
+  state.pdfSearchMatches.clear();
+  state.pdfSearchIndex = -1;
+  state.pdfSearchStatus = "";
+  clearPdfSearchHighlights();
+
+  if (!query && !compactQuery) {
+    updatePdfControls();
+    return;
+  }
+
+  state.pdfSearchStatus = "Đang tìm";
+  updatePdfControls();
+  for (let pageNumber = 1; pageNumber <= state.pdfDoc.numPages; pageNumber += 1) {
+    const text = await getPdfPageText(pageNumber);
+    if (revision !== state.pdfSearchRevision) {
+      return;
+    }
+
+    const matches = getPdfSearchMatches(text, query, compactQuery);
+    if (matches.length) {
+      state.pdfSearchResults.push(pageNumber);
+      state.pdfSearchMatches.set(pageNumber, matches);
+    }
+  }
+
+  if (state.pdfSearchResults.length) {
+    const currentPage = clampPdfPage(state.pdfPage);
+    const nearestIndex = state.pdfSearchResults.findIndex((pageNumber) => pageNumber >= currentPage);
+    state.pdfSearchIndex = nearestIndex >= 0 ? nearestIndex : 0;
+    await goToPdfPage(state.pdfSearchResults[state.pdfSearchIndex]);
+    renderPdfVisibleSearchHighlights();
+    state.pdfSearchStatus = "";
+  } else {
+    state.pdfSearchStatus = "Không có";
+  }
+  updatePdfControls();
+}
+
+async function goToPdfSearchResult(delta) {
+  if (!state.pdfSearchResults.length) {
+    return;
+  }
+
+  const total = state.pdfSearchResults.length;
+  state.pdfSearchIndex = (state.pdfSearchIndex + delta + total) % total;
+  await goToPdfPage(state.pdfSearchResults[state.pdfSearchIndex]);
+  renderPdfVisibleSearchHighlights();
+  updatePdfControls();
+}
+function startPdfPan(event) {
+  if (document.fullscreenElement !== els.pdfBook || event.button !== 2 || event.target.closest(".pdf-fullscreen-hud")) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  state.pdfPanning = true;
+  state.pdfPanStart = {
+    x: event.clientX,
+    y: event.clientY,
+    panX: state.pdfPanX,
+    panY: state.pdfPanY,
+  };
+  updatePdfControls();
+}
+
+function movePdfPan(event) {
+  if (!state.pdfPanning || !state.pdfPanStart) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  state.pdfPanX = state.pdfPanStart.panX + event.clientX - state.pdfPanStart.x;
+  state.pdfPanY = state.pdfPanStart.panY + event.clientY - state.pdfPanStart.y;
+  applyPdfPan();
+}
+
+function finishPdfPan() {
+  if (!state.pdfPanning) {
+    return;
+  }
+  state.pdfPanning = false;
+  state.pdfPanStart = null;
+  updatePdfControls();
 }
 
 function nextPdfPage() {
@@ -1396,14 +2353,87 @@ function handlePdfResize() {
   }, 140);
 }
 
+async function togglePdfFullscreen() {
+  if (!state.pdfDoc || !document.fullscreenEnabled) {
+    return;
+  }
+
+  try {
+    if (document.fullscreenElement === els.pdfBook) {
+      await document.exitFullscreen();
+    } else {
+      try {
+        await els.pdfBook.requestFullscreen({ navigationUI: "hide" });
+      } catch {
+        await els.pdfBook.requestFullscreen();
+      }
+    }
+  } catch (error) {
+    els.pdfFileName.textContent = `Không bật được toàn màn hình: ${error.message}`;
+  }
+}
+
+function handlePdfFullscreenChange() {
+  if (document.fullscreenElement !== els.pdfBook) {
+    state.pdfPanning = false;
+    state.pdfPanStart = null;
+    state.pdfHudVisible = false;
+    window.clearTimeout(state.pdfHudTimer);
+    finishPdfAnnotation();
+    state.pdfEditOpen = false;
+  } else {
+    setPdfHudVisible(true, true);
+  }
+  updatePdfControls();
+  if (!state.pdfDoc) {
+    return;
+  }
+
+  window.clearTimeout(state.pdfResizeTimer);
+  state.pdfResizeTimer = window.setTimeout(() => {
+    updatePdfFlipbookLayout(true);
+  }, 180);
+}
+
 function isTypingTarget(target) {
   return target instanceof HTMLElement && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName);
+}
+
+function startRecommendedSession() {
+  const unit = getCurrentUnit();
+  const stats = getUnitStats(unit);
+
+  if (!stats.wordCount) {
+    switchPanel("add");
+    return;
+  }
+
+  const method = getRecommendedMethod(stats);
+  syncTestMethodControls(method);
+  startTest(getTestWords(), method);
+}
+
+function startReviewSession() {
+  const unit = getCurrentUnit();
+
+  if (!unit.words.length) {
+    switchPanel("learn");
+    return;
+  }
+
+  const mastered = getMasteredMap();
+  const weakWords = unit.words.filter((word) => !mastered[makeWordId(word)]);
+  const words = weakWords.length ? weakWords : unit.words;
+  const method = weakWords.length <= 6 ? "flashcard" : "choice";
+  syncTestMethodControls(method);
+  startTest(els.shuffleInput.checked ? shuffle(words) : [...words], method);
 }
 
 async function showPdfFile(record) {
   cancelPdfRenderTasks();
   state.pdfRenderId += 1;
   state.pdfTurning = false;
+  resetPdfFullscreenTools();
   destroyPdfFlipbook();
 
   if (state.pdfDoc) {
@@ -1527,12 +2557,25 @@ function applyTheme(theme, persist = true) {
   const safeTheme = theme === "dark" ? "dark" : "light";
   const nextLabel = safeTheme === "dark" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối";
   document.documentElement.dataset.theme = safeTheme;
-  els.themeToggle.setAttribute("aria-pressed", String(safeTheme === "dark"));
-  els.themeToggle.setAttribute("aria-label", nextLabel);
-  els.themeToggle.title = nextLabel;
+
+  if (els.themeToggle) {
+    els.themeToggle.setAttribute("aria-pressed", String(safeTheme === "dark"));
+    els.themeToggle.setAttribute("aria-label", nextLabel);
+    els.themeToggle.title = nextLabel;
+  }
 
   if (persist) {
     localStorage.setItem(STORAGE_KEYS.theme, safeTheme);
+  }
+}
+
+function applyAccent(accent, persist = true) {
+  const safeAccent = ["teal", "violet", "coral"].includes(accent) ? accent : "teal";
+  document.documentElement.dataset.accent = safeAccent;
+  syncSettingsControls();
+
+  if (persist) {
+    localStorage.setItem(STORAGE_KEYS.accent, safeAccent);
   }
 }
 
@@ -1561,6 +2604,7 @@ function toggleTheme() {
 
 function initTheme() {
   applyTheme(document.documentElement.dataset.theme, false);
+  applyAccent(document.documentElement.dataset.accent, false);
 }
 
 function bindEvents() {
@@ -1572,6 +2616,50 @@ function bindEvents() {
   els.pdfZoomOutButton.addEventListener("click", () => changePdfZoom(-PDF_ZOOM_STEP));
   els.pdfZoomInButton.addEventListener("click", () => changePdfZoom(PDF_ZOOM_STEP));
   els.pdfFitButton.addEventListener("click", fitPdfToFrame);
+  els.pdfFullscreenButton.addEventListener("click", togglePdfFullscreen);
+  els.pdfFullscreenCloseButton.addEventListener("click", togglePdfFullscreen);
+  els.pdfEditButton.addEventListener("click", togglePdfEditPanel);
+  els.pdfEditToolButtons.forEach((button) => {
+    button.addEventListener("click", () => setPdfEditTool(button.dataset.pdfTool));
+  });
+  els.pdfEditColorButtons.forEach((button) => {
+    button.addEventListener("click", () => setPdfEditColor(button.dataset.pdfColor));
+  });
+  els.pdfEditSizeInput.addEventListener("input", () => setPdfEditSize(els.pdfEditSizeInput.value));
+  els.pdfClearAnnotationsButton.addEventListener("click", clearPdfAnnotations);
+  els.pdfSearchForm.addEventListener("submit", searchPdf);
+  els.pdfSearchInput.addEventListener("input", () => {
+    state.pdfSearchStatus = "";
+    state.pdfSearchRevision += 1;
+    state.pdfSearchQuery = "";
+    state.pdfSearchResults = [];
+    state.pdfSearchMatches.clear();
+    state.pdfSearchIndex = -1;
+    clearPdfSearchHighlights();
+    updatePdfControls();
+  });
+  els.pdfSearchPrevButton.addEventListener("click", () => goToPdfSearchResult(-1));
+  els.pdfSearchNextButton.addEventListener("click", () => goToPdfSearchResult(1));
+  els.pdfBook.addEventListener(
+    "mousedown",
+    (event) => {
+      startPdfPan(event);
+      startPdfAnnotation(event);
+    },
+    true,
+  );
+  els.pdfBook.addEventListener("contextmenu", (event) => {
+    if (document.fullscreenElement === els.pdfBook) {
+      event.preventDefault();
+    }
+  });
+  els.pdfBook.addEventListener("mousemove", handlePdfFullscreenMouseMove);
+  els.pdfBook.addEventListener("mouseleave", () => {
+    if (document.fullscreenElement === els.pdfBook) {
+      setPdfHudVisible(false);
+    }
+  });
+  els.pdfBook.addEventListener("wheel", handlePdfWheelZoom, { passive: false });
   els.pdfPageInput.addEventListener("change", () => {
     goToPdfPage(els.pdfPageInput.value);
   });
@@ -1583,6 +2671,15 @@ function bindEvents() {
     }
   });
   window.addEventListener("resize", handlePdfResize);
+  document.addEventListener("fullscreenchange", handlePdfFullscreenChange);
+  document.addEventListener("mousemove", (event) => {
+    movePdfPan(event);
+    movePdfAnnotation(event);
+  });
+  document.addEventListener("mouseup", () => {
+    finishPdfPan();
+    finishPdfAnnotation();
+  });
   els.modeMenuButton.addEventListener("click", () => {
     setModePanel(!els.modeMenuPanel.classList.contains("open"));
   });
@@ -1590,6 +2687,29 @@ function bindEvents() {
     setUnitPanel(!els.unitListPanel.classList.contains("open"));
   });
   els.themeToggle.addEventListener("click", toggleTheme);
+  els.accentChoiceInputs.forEach((input) => {
+    input.addEventListener("change", () => {
+      if (input.checked) {
+        applyAccent(input.value);
+      }
+    });
+  });
+  els.unitCountInput.addEventListener("change", () => {
+    setUnitCount(els.unitCountInput.value);
+  });
+  els.unitCountInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      setUnitCount(els.unitCountInput.value);
+      els.unitCountInput.blur();
+    }
+  });
+  els.resetSettingsButton.addEventListener("click", () => {
+    localStorage.removeItem(STORAGE_KEYS.unitCount);
+    localStorage.removeItem(STORAGE_KEYS.accent);
+    applyAccent("teal", false);
+    setUnitCount(DEFAULT_UNIT_COUNT);
+  });
   els.importUnitInput.addEventListener("change", () => {
     setUnit(els.importUnitInput.value);
   });
@@ -1607,6 +2727,8 @@ function bindEvents() {
   els.importTab.addEventListener("click", () => switchPanel("import"));
   els.showLearnButton.addEventListener("click", () => switchPanel("learn"));
   els.startTestButton.addEventListener("click", () => startTest());
+  els.coachStartButton.addEventListener("click", startRecommendedSession);
+  els.coachReviewButton.addEventListener("click", startReviewSession);
   els.startTestSideButton.addEventListener("click", () => startTest());
   els.resetTestButton.addEventListener("click", () => startTest());
   els.answerForm.addEventListener("submit", submitAnswer);
@@ -1623,6 +2745,12 @@ function bindEvents() {
       .map((result) => result.word);
     startTest(wrongWords, state.testMethod);
   });
+  els.pathNodes.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-path-unit-id]");
+    if (button) {
+      setUnit(button.dataset.pathUnitId);
+    }
+  });
   els.searchInput.addEventListener("input", renderWordTable);
   els.wordTable.addEventListener("change", (event) => {
     const input = event.target.closest("[data-mastered]");
@@ -1632,7 +2760,11 @@ function bindEvents() {
     const mastered = getMasteredMap();
     mastered[input.dataset.mastered] = input.checked;
     saveJson(STORAGE_KEYS.mastered, mastered);
-    updateStats();
+    if (input.checked) {
+      recordActivity({ xp: 8, mastered: 1 });
+    }
+    initUnitControls();
+    renderAll();
   });
   els.wordForm.addEventListener("submit", addCustomWord);
   els.clearCustomButton.addEventListener("click", clearCustomWords);

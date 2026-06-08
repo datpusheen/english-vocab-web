@@ -8,10 +8,13 @@
       (() => {
         try {
           const savedTheme = localStorage.getItem("b1Trainer.theme");
+          const savedAccent = localStorage.getItem("b1Trainer.accent");
           const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           document.documentElement.dataset.theme = savedTheme || (prefersDark ? "dark" : "light");
+          document.documentElement.dataset.accent = savedAccent || "teal";
         } catch {
           document.documentElement.dataset.theme = "light";
+          document.documentElement.dataset.accent = "teal";
         }
       })();
     </script>
@@ -24,12 +27,83 @@
       };
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="styles.css?v=11" />
+    <link rel="stylesheet" href="styles.css?v=21" />
   </head>
   <body class="min-h-screen antialiased">
     <div class="app min-h-screen">
       <header class="top-nav shadow-sm" aria-label="Điều hướng học tập">
         <div class="top-nav-main">
+          <div class="nav-menu-wrap">
+            <button
+              class="nav-drawer-button"
+              id="modeMenuButton"
+              type="button"
+              aria-expanded="false"
+              aria-controls="modeMenuPanel"
+              aria-label="Mở menu điều hướng"
+            >
+              <span aria-hidden="true"></span>
+              <span aria-hidden="true"></span>
+              <span aria-hidden="true"></span>
+            </button>
+            <nav class="mode-menu-panel" id="modeMenuPanel" aria-label="Menu học tập" hidden>
+              <div class="mode-menu-heading">
+                <strong>Menu</strong>
+                <span id="currentModeLabel">PDF sách</span>
+              </div>
+              <div class="mode-menu-section">
+                <span class="mode-menu-section-title">Điều hướng</span>
+                <button class="active" id="pdfTab" type="button">
+                  <strong>PDF sách</strong>
+                  <span>Mở tài liệu gốc</span>
+                </button>
+                <button id="learnTab" type="button">
+                  <strong>Học từ</strong>
+                  <span>Danh sách và trạng thái thuộc</span>
+                </button>
+                <button id="testTab" type="button">
+                  <strong>Kiểm tra</strong>
+                  <span>Luyện nhớ bằng câu hỏi</span>
+                </button>
+                <button id="addTab" type="button">
+                  <strong>Thêm từ</strong>
+                  <span>Nhập từ mới cho unit</span>
+                </button>
+                <button id="importTab" type="button">
+                  <strong>Import</strong>
+                  <span>Nạp dữ liệu JSON</span>
+                </button>
+              </div>
+              <div class="menu-settings" id="settingsPanel">
+                <div class="menu-settings-title">
+                  <strong>Cài đặt</strong>
+                  <span>Tùy chỉnh bộ học</span>
+                </div>
+                <label class="settings-field" for="unitCountInput">
+                  <span>Số unit</span>
+                  <input id="unitCountInput" type="number" min="1" max="80" step="1" />
+                </label>
+                <div class="settings-field">
+                  <span>Màu chủ đề</span>
+                  <div class="accent-choice-group" role="radiogroup" aria-label="Màu nhấn chủ đề">
+                    <label class="accent-teal">
+                      <input type="radio" name="accentChoice" value="teal" />
+                      <span>Xanh</span>
+                    </label>
+                    <label class="accent-violet">
+                      <input type="radio" name="accentChoice" value="violet" />
+                      <span>Tím</span>
+                    </label>
+                    <label class="accent-coral">
+                      <input type="radio" name="accentChoice" value="coral" />
+                      <span>Cam</span>
+                    </label>
+                  </div>
+                </div>
+                <button class="settings-reset-button" id="resetSettingsButton" type="button">Về mặc định</button>
+              </div>
+            </nav>
+          </div>
           <div class="brand">
             <span class="brand-mark">B1</span>
             <div>
@@ -39,25 +113,6 @@
           </div>
 
           <div class="nav-controls">
-            <div class="nav-menu-wrap">
-              <button
-                class="nav-menu-button"
-                id="modeMenuButton"
-                type="button"
-                aria-expanded="false"
-                aria-controls="modeMenuPanel"
-              >
-                <span id="currentModeLabel">PDF sách</span>
-                <span class="unit-menu-icon" aria-hidden="true"></span>
-              </button>
-              <nav class="mode-menu-panel" id="modeMenuPanel" aria-label="Chế độ học" hidden>
-                <button class="active" id="pdfTab" type="button">PDF sách</button>
-                <button id="learnTab" type="button">Học từ</button>
-                <button id="testTab" type="button">Kiểm tra</button>
-                <button id="addTab" type="button">Thêm từ</button>
-                <button id="importTab" type="button">Import</button>
-              </nav>
-            </div>
             <button
               class="theme-toggle"
               id="themeToggle"
@@ -115,6 +170,23 @@
             <p id="unitDescription">
               Chọn một unit ở thanh trên để bắt đầu học từ vựng.
             </p>
+            <div class="hero-strip">
+              <div
+                class="readiness-ring"
+                id="readinessRing"
+                role="meter"
+                aria-label="Độ sẵn sàng"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+              >
+                <span id="readinessRingValue">0%</span>
+              </div>
+              <div>
+                <strong id="heroFocusTitle">Bắt đầu nhẹ nhàng</strong>
+                <span id="heroFocusText">Chọn flashcard để làm quen từ mới trước.</span>
+              </div>
+            </div>
             <div class="hero-actions">
               <button class="primary-button" id="startTestButton" type="button">
                 Làm bài test unit này
@@ -124,11 +196,17 @@
               </button>
             </div>
           </div>
-          <img
-            class="hero-image"
-            src="assets/study-desk.png"
-            alt="Bàn học với flashcard từ vựng tiếng Anh"
-          />
+          <div class="hero-visual">
+            <img
+              class="hero-image"
+              src="assets/study-desk.png"
+              alt="Bàn học với flashcard từ vựng tiếng Anh"
+            />
+            <div class="hero-badge" aria-hidden="true">
+              <span>XP</span>
+              <strong id="heroXpBadge">0</strong>
+            </div>
+          </div>
         </section>
 
         <section class="dashboard" aria-label="Tổng quan tiến độ">
@@ -147,6 +225,51 @@
           <article>
             <span>Độ sẵn sàng</span>
             <strong id="readyPercent">0%</strong>
+          </article>
+        </section>
+
+        <section class="learning-hub" aria-label="Gợi ý học thông minh">
+          <article class="coach-panel">
+            <span class="coach-mark" aria-hidden="true">B1</span>
+            <div class="coach-copy">
+              <p class="eyebrow">Smart coach</p>
+              <h2 id="coachTitle">Sẵn sàng học unit này</h2>
+              <p id="coachMessage">App sẽ gợi ý cách luyện dựa trên từ đã thuộc và điểm gần nhất.</p>
+            </div>
+            <div class="coach-actions">
+              <button class="primary-button" id="coachStartButton" type="button">Bắt đầu gợi ý</button>
+              <button class="ghost-button" id="coachReviewButton" type="button">Ôn từ yếu</button>
+            </div>
+          </article>
+
+          <article class="streak-panel">
+            <p class="eyebrow">Daily rhythm</p>
+            <dl class="streak-list">
+              <div>
+                <dt>Streak</dt>
+                <dd><strong id="streakDays">0</strong><span>ngày</span></dd>
+              </div>
+              <div>
+                <dt>XP hôm nay</dt>
+                <dd><strong id="todayXp">0</strong><span>xp</span></dd>
+              </div>
+              <div>
+                <dt>Cần ôn</dt>
+                <dd><strong id="reviewCount">0</strong><span>từ</span></dd>
+              </div>
+            </dl>
+          </article>
+
+          <article class="path-panel">
+            <div class="path-heading">
+              <div>
+                <p class="eyebrow">Unit path</p>
+                <h2>Lộ trình gần nhất</h2>
+              </div>
+              <span id="pathProgressLabel">0%</span>
+            </div>
+            <div class="path-progress" aria-hidden="true"><span id="pathProgressBar"></span></div>
+            <div class="path-track" id="pathNodes"></div>
           </article>
         </section>
 
@@ -219,6 +342,18 @@
                 <button class="ghost-button pdf-fit-button" id="pdfFitButton" type="button" disabled>
                   Vừa khung
                 </button>
+                <button
+                  class="reader-icon-button pdf-fullscreen-button"
+                  id="pdfFullscreenButton"
+                  type="button"
+                  aria-label="Toàn màn hình"
+                  title="Toàn màn hình"
+                  disabled
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+                  </svg>
+                </button>
               </div>
             </div>
 
@@ -234,6 +369,88 @@
                 <span aria-hidden="true">‹</span>
               </button>
               <div class="pdf-book" id="pdfBook" aria-live="polite">
+                <div class="pdf-fullscreen-hud" id="pdfFullscreenHud">
+                  <div class="pdf-fullscreen-progress" aria-hidden="true">
+                    <span id="pdfFullscreenProgressBar"></span>
+                  </div>
+                  <div class="pdf-fullscreen-tools" aria-label="Công cụ toàn màn hình">
+                    <button
+                      class="ghost-button pdf-edit-toggle"
+                      id="pdfEditButton"
+                      type="button"
+                      aria-expanded="false"
+                      aria-controls="pdfEditPanel"
+                      disabled
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="m4 20 4-1 10-10-3-3L5 16l-1 4Z" />
+                        <path d="m14 6 2-2 3 3-2 2" />
+                        <path d="M12 20h8" />
+                      </svg>
+                      <span>Sửa</span>
+                    </button>
+                    <div class="pdf-edit-panel" id="pdfEditPanel" hidden>
+                      <div class="pdf-tool-group" role="radiogroup" aria-label="Loại bút">
+                        <button class="pdf-tool-button" type="button" data-pdf-tool="pencil" aria-pressed="false">Chì</button>
+                        <button class="pdf-tool-button" type="button" data-pdf-tool="ink" aria-pressed="false">Mực</button>
+                        <button class="pdf-tool-button" type="button" data-pdf-tool="marker" aria-pressed="false">Dạ</button>
+                        <button class="pdf-tool-button" type="button" data-pdf-tool="highlight" aria-pressed="true">Highlight</button>
+                        <button class="pdf-tool-button" type="button" data-pdf-tool="eraser" aria-pressed="false">Tẩy</button>
+                      </div>
+                      <div class="pdf-color-group" aria-label="Màu bút">
+                        <button class="pdf-color-swatch" type="button" data-pdf-color="#facc15" style="--swatch: #facc15" aria-label="Vàng"></button>
+                        <button class="pdf-color-swatch" type="button" data-pdf-color="#22c55e" style="--swatch: #22c55e" aria-label="Xanh lá"></button>
+                        <button class="pdf-color-swatch" type="button" data-pdf-color="#0ea5e9" style="--swatch: #0ea5e9" aria-label="Xanh dương"></button>
+                        <button class="pdf-color-swatch" type="button" data-pdf-color="#ef4444" style="--swatch: #ef4444" aria-label="Đỏ"></button>
+                        <button class="pdf-color-swatch" type="button" data-pdf-color="#111827" style="--swatch: #111827" aria-label="Đen"></button>
+                      </div>
+                      <label class="pdf-size-control" for="pdfEditSizeInput">
+                        <span>Size</span>
+                        <input id="pdfEditSizeInput" type="range" min="2" max="30" value="8" />
+                        <strong id="pdfEditSizeValue">8</strong>
+                      </label>
+                      <button class="ghost-button pdf-clear-annotations-button" id="pdfClearAnnotationsButton" type="button">
+                        Xóa hết
+                      </button>
+                    </div>
+                    <form class="pdf-search-form" id="pdfSearchForm">
+                      <input id="pdfSearchInput" type="search" placeholder="Tìm trong PDF" />
+                      <button class="ghost-button" type="submit">Tìm</button>
+                    </form>
+                    <button
+                      class="reader-icon-button"
+                      id="pdfSearchPrevButton"
+                      type="button"
+                      aria-label="Kết quả trước"
+                      title="Kết quả trước"
+                    >
+                      <span aria-hidden="true">‹</span>
+                    </button>
+                    <span class="pdf-search-count" id="pdfSearchCount">0/0</span>
+                    <button
+                      class="reader-icon-button"
+                      id="pdfSearchNextButton"
+                      type="button"
+                      aria-label="Kết quả tiếp"
+                      title="Kết quả tiếp"
+                    >
+                      <span aria-hidden="true">›</span>
+                    </button>
+                    <span class="pdf-pan-hint">Giữ chuột phải để kéo sách</span>
+                    <button
+                      class="reader-icon-button"
+                      id="pdfFullscreenCloseButton"
+                      type="button"
+                      aria-label="Thoát toàn màn hình"
+                      title="Thoát toàn màn hình"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M9 3H3v6M15 3h6v6M9 21H3v-6M15 21h6v-6" />
+                        <path d="M9 9 3 3M15 9l6-6M9 15l-6 6M15 15l6 6" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
                 <div class="pdf-empty-state" id="pdfEmptyState">
                   Chọn PDF để đọc kiểu ebook trong app.
                 </div>
@@ -284,6 +501,9 @@
               <div class="question-top">
                 <span id="questionIndex">Câu 1/1</span>
                 <span id="questionScore">0 đúng</span>
+              </div>
+              <div class="question-progress" aria-hidden="true">
+                <span id="questionProgressBar"></span>
               </div>
               <span class="meaning-label" id="questionPrompt">Nghĩa tiếng Việt</span>
               <h3 id="questionMeaning">Bấm làm bài test để bắt đầu.</h3>
@@ -446,6 +666,6 @@
     <script src="assets/vendor/jquery.js"></script>
     <script src="assets/vendor/turn.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script src="app.js?v=11"></script>
+    <script src="app.js?v=21"></script>
   </body>
 </html>
